@@ -62,6 +62,17 @@ Zotero.UI.ProgressWindow = class ProgressWindow extends React.PureComponent {
 		this.done = false;
 		this.canUserAddNote = false;
 		this.supportsTagsAutocomplete = false;
+		this.maxRecentTargets = 7;
+		Zotero.Connector.getPref('recentTargets.maxDisplay').then((value) => {
+			let parsed = parseInt(value, 10);
+			if (!Number.isFinite(parsed) || parsed < 0) {
+				return;
+			}
+			if (parsed !== this.maxRecentTargets) {
+				this.maxRecentTargets = parsed;
+				this.forceUpdate();
+			}
+		});
 		
 		this.text = {
 			more: Zotero.getString('general_more'),
@@ -117,7 +128,8 @@ Zotero.UI.ProgressWindow = class ProgressWindow extends React.PureComponent {
 			errors: [],
 			note: "",
 			selectedTags: new Set(),
-			extraHeightForTagAutocomplete: 0
+			extraHeightForTagAutocomplete: 0,
+			extensionRecents: []
 		};
 	}
 	
@@ -189,7 +201,7 @@ Zotero.UI.ProgressWindow = class ProgressWindow extends React.PureComponent {
 	//
 	// State update
 	//
-	changeHeadline(text, target, targets, tags) {
+	changeHeadline(text, target, targets, tags, extensionRecents = []) {
 		// Target selector mode
 		if (targets) {
 			// On initialization or if collapsed, focus the recents drop-down
@@ -216,7 +228,8 @@ Zotero.UI.ProgressWindow = class ProgressWindow extends React.PureComponent {
 		var state = {
 			headlineText: text,
 			target,
-			targets
+			targets,
+			extensionRecents
 		};
 		// If client is closed after a successful save with the target selector open and then the
 		// button is clicked again and save-to-server is enabled, we need to collapse the pane
@@ -681,11 +694,39 @@ Zotero.UI.ProgressWindow = class ProgressWindow extends React.PureComponent {
 	}
 	
 	renderHeadlineSelect() {
-		var rowTargets = [
-			this.state.target,
-			// Show recent targets
-			...this.state.targets.filter(t => t.recent && t.id != this.state.target.id)
-		];
+		const targets = this.state.targets || [];
+		const targetMap = new Map(targets.map(row => [row.id, row]));
+		const limit = Number.isInteger(this.maxRecentTargets) ? this.maxRecentTargets : 0;
+		const recents = [];
+		const seen = new Set();
+		const addRecent = (row) => {
+			if (!row || seen.has(row.id) || recents.length >= limit) {
+				return;
+			}
+			recents.push(row);
+			seen.add(row.id);
+		};
+		if (this.state.target && this.state.target.id) {
+			seen.add(this.state.target.id);
+		}
+		if (limit > 0) {
+			for (let row of targets) {
+				if (!row.recent) continue;
+				addRecent(row);
+				if (recents.length >= limit) break;
+			}
+			if (recents.length < limit) {
+				for (let id of this.state.extensionRecents || []) {
+					if (recents.length >= limit) break;
+					addRecent(targetMap.get(id));
+				}
+			}
+		}
+		var rowTargets = [];
+		if (this.state.target) {
+			rowTargets.push(this.state.target);
+		}
+		rowTargets.push(...recents);
 		if (!this.state.targetSelectorShown) {
 			rowTargets.push({
 				id: "more",

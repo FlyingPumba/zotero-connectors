@@ -67,6 +67,23 @@ if (isTopWindow) {
 	var scrollX;
 	var scrollY;
 	var zoteroFrame;
+	const RECENT_TARGETS_HISTORY_PREF = 'recentTargets.history';
+	let recentTargetIDsCache = null;
+
+	async function getStoredRecentTargetIDs() {
+		if (!recentTargetIDsCache) {
+			recentTargetIDsCache = await Zotero.Prefs.getAsync(RECENT_TARGETS_HISTORY_PREF) || [];
+		}
+		return [...recentTargetIDsCache];
+	}
+
+	async function recordRecentTarget(target) {
+		if (!target || !target.id) return;
+		let ids = await getStoredRecentTargetIDs();
+		ids = [target.id, ...ids.filter(id => id != target.id)];
+		recentTargetIDsCache = ids;
+		await Zotero.Prefs.set(RECENT_TARGETS_HISTORY_PREF, ids);
+	}
 	
 	async function sendMessageToFrame(name, data = {}) {
 		return Zotero.Messaging.sendToZoteroFrames(name, data);
@@ -169,7 +186,8 @@ if (isTopWindow) {
 			tags[libraryID] = [...new Set(tagArr.map(item => item.tag))];
 		});
 
-		changeHeadline(prefix, target, targets, tags);
+		const storedRecents = await getStoredRecentTargetIDs();
+		changeHeadline(prefix, target, targets, tags, storedRecents);
 	}
 	
 	async function addError() {
@@ -340,6 +358,7 @@ if (isTopWindow) {
 			
 			// Keep track of last successful target to show on reopen and failure
 			lastSuccessfulTarget = data.target;
+			await recordRecentTarget(data.target);
 		};
 		
 		// Once a session is created in the client, send any queued session data

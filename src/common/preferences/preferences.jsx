@@ -175,6 +175,25 @@ Zotero_Preferences.General = {
 
 		Zotero.API.getUserInfo().then(Zotero_Preferences.General.updateAuthorization);
 
+		const recentTargetsInput = document.getElementById('general-input-recent-targets');
+		if (recentTargetsInput) {
+			recentTargetsInput.dataset.prev = '7';
+			Zotero.Prefs.getAsync('recentTargets.maxDisplay').then((value) => {
+				recentTargetsInput.value = value;
+				recentTargetsInput.dataset.prev = value;
+			});
+			recentTargetsInput.addEventListener('change', async (event) => {
+				let parsed = parseInt(event.target.value, 10);
+				if (!Number.isInteger(parsed) || parsed < 0) {
+					alert('Recent folders value must be a non-negative integer.');
+					event.target.value = event.target.dataset.prev;
+					return;
+				}
+				await Zotero.Prefs.set('recentTargets.maxDisplay', parsed);
+				event.target.dataset.prev = parsed;
+			});
+		}
+
 	},
 
 	/**
