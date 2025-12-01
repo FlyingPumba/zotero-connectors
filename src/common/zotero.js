@@ -345,6 +345,8 @@ Zotero.Prefs = new function() {
 		"connector.repo.lastCheck.localTime": 0,
 		"connector.repo.lastCheck.repoTime": 0,
 		"connector.url": 'http://127.0.0.1:23119/',
+		"recentTargets.maxDisplay": 7,
+		"recentTargets.history": [],
 		"capitalizeTitles": false,
 		"interceptKnownFileTypes": true,
 		"allowedCSLExtensionHosts": ["^https://raw\\.githubusercontent\\.com/", "^https://gitee\\.com/.+/raw/"],
