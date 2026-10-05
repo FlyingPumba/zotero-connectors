@@ -1,6 +1,8 @@
 /* global Zotero, browser */
 Zotero.Research = {
 	async show(tab) {
+		// Tabs left open across installation/reload have no live content-script listener.
+		await Zotero.Connector_Browser.injectTranslationScripts(tab);
 		return browser.tabs.sendMessage(tab.id, {research: 'show'}, {frameId: 0});
 	},
 	async call(method, data) {

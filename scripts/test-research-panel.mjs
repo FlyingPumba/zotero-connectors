@@ -52,7 +52,7 @@ try {
   const page = await browser.newPage();
   await page.goto(url);
   const tabID = await worker.evaluate(async url => (await browser.tabs.query({url}))[0].id, url);
-  await worker.evaluate(async id => Zotero.Research.show(await browser.tabs.get(id)), tabID);
+  await worker.evaluate(async id => Zotero.Connector_Browser.onZoteroButtonElementClick(await browser.tabs.get(id)), tabID);
   const panel = await page.waitForFrame(f => f.url().includes('/research/panel.html'));
   await panel.waitForFunction(() => document.getElementById('progress').hidden && innerHeight === Math.ceil(document.body.getBoundingClientRect().height));
   const ready = await panel.evaluate(() => ({height: innerHeight, text: document.body.innerText,
