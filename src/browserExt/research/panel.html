@@ -2,15 +2,22 @@
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Add &amp; Summarize</title><link rel="stylesheet" href="panel.css"></head>
 <body>
-<header><div><span class="eyebrow">ZOTERO RESEARCH</span></div><button id="close" class="icon" aria-label="Close">×</button></header>
+<header><div><span class="eyebrow">ZOTERO RESEARCH</span><h1 id="title" hidden></h1></div><button id="close" class="icon" aria-label="Close">×</button></header>
 <main>
   <section id="actions"><button id="entry">Add entry &amp; Summarize</button><button id="pdf" class="secondary">Add PDF &amp; Summarize</button></section>
   <div id="progress" role="status" aria-live="polite"><span id="activity" aria-hidden="true"></span><div><p id="status">Connecting to Zotero…</p><p id="elapsed" aria-live="off" hidden></p></div></div>
   <p id="error" role="alert" hidden></p><button id="retry" class="secondary" hidden>Retry ingestion</button>
-  <section id="paper" hidden><h2 id="title"></h2><p id="coverage" class="hint"></p><p id="summary"></p><p id="filed" class="hint"></p></section>
+  <section id="categories" hidden aria-labelledby="categoriesHeading">
+    <div class="section-heading"><h2 id="categoriesHeading">Categories</h2><span id="categoryStatus" role="status"></span></div>
+    <div id="categoryChips"></div>
+    <details id="categoryPicker"><summary>Edit categories <span aria-hidden="true">⌄</span></summary>
+      <div class="category-menu"><input id="categorySearch" type="search" placeholder="Find a category…" aria-label="Find a category" autocomplete="off"><div id="categoryOptions"></div><p id="noCategories" class="hint" hidden>No matching categories</p></div>
+    </details>
+  </section>
+  <section id="paper" hidden><h2>Summary</h2><p id="summary"></p><p id="coverage" class="hint"></p></section>
   <section id="approval" hidden><h2>Suggested new categories</h2><p>Choose any to create. Existing categories have already been applied.</p><div id="proposals"></div><button id="approve">Save choices &amp; open chat</button><button id="skip" class="secondary">Skip new categories &amp; open chat</button></section>
-  <section id="chat" hidden><h2>Discuss this paper</h2><div id="messages" aria-live="polite"></div><p id="partial"></p><form id="chatForm"><label for="question">Your question</label><textarea id="question" rows="3" placeholder="What is the key insight behind the method?"></textarea><button id="send" type="submit">Send</button></form><p class="hint">The source is fetched again for each answer. Chat does not change the saved summary.</p></section>
+  <section id="chat" hidden><h2>Discuss the paper</h2><div id="messages" aria-live="polite"></div><div id="partial" class="markdown"></div><form id="chatForm"><textarea id="question" aria-label="Ask about the paper" rows="2" placeholder="What is the key insight behind the method?"></textarea><button id="send" type="submit">Send</button></form></section>
 </main>
-<footer><button id="ordinary" class="secondary">Save with usual workflow</button></footer>
-<script src="../browser-polyfill.js"></script><script src="panel.js"></script>
+<footer><details id="session" hidden><summary>Codex session</summary><div class="session-command"><code id="sessionCommand"></code><button id="copySession" class="secondary">Copy command</button></div><span id="copyStatus" class="hint" role="status"></span></details><button id="ordinary" class="secondary">Save with usual workflow</button></footer>
+<script src="../browser-polyfill.js"></script><script src="../lib/marked.js"></script><script src="../lib/dompurify.js"></script><script src="panel.js"></script>
 </body></html>
