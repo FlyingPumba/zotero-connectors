@@ -25,6 +25,7 @@ browser.runtime.onMessage.addListener((message, sender) => {
 		await Zotero.initDeferred.promise;
 		const tab = await browser.tabs.get(sender.tab.id);
 		const data = message.data || {};
+		if (message.action === 'resize') return browser.tabs.sendMessage(tab.id, {research: 'resize', height: data.height}, {frameId: 0});
 		if (message.action === 'close') return browser.tabs.sendMessage(tab.id, {research: 'hide'}, {frameId: 0});
 		if (message.action === 'ordinary') {
 			const info = Zotero.Connector_Browser.getTabInfo(tab.id);

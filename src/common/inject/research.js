@@ -5,12 +5,16 @@ if (Zotero.isManifestV3 && window.top === window) {
 		if (!message?.research || message.research === 'panel') return;
 		return (async () => {
 			if (message.research === 'hide') { researchFrame?.remove(); researchFrame = null; return {ok: true}; }
+			if (message.research === 'resize') {
+				if (researchFrame && Number.isFinite(message.height) && message.height > 0) researchFrame.frame.style.height = `${message.height}px`;
+				return {ok: true};
+			}
 			if (message.research === 'show') {
 				if (!researchFrame) researchFrame = new Zotero.Frame({
 					src: Zotero.getExtensionURL('research/panel.html'), title: 'Add & Summarize',
 					'data-single-file-hidden-frame': ''
 				}, {position: 'fixed', top: '16px', right: '16px', width: '460px', maxWidth: 'calc(100vw - 32px)',
-					height: 'min(760px, calc(100vh - 32px))', border: '0', borderRadius: '16px',
+					height: '240px', maxHeight: 'min(760px, calc(100vh - 32px))', border: '0', borderRadius: '16px',
 					boxShadow: '0 12px 60px #0005', zIndex: 2147483647, colorScheme: 'light'});
 				await researchFrame.init(); return {ok: true};
 			}
