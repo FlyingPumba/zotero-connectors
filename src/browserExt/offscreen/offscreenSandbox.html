@@ -27,7 +27,8 @@
 <head>
 	<meta charset="UTF-8">
 	<!--
-		Translator code is eval'd in this page. The CSP below restricts every
+		Translator code is eval'd in this page. Inline styles are allowed because
+		DOMParser applies this CSP to copied page HTML. The CSP below restricts every
 		directive not needed by the loader scripts or the translator runtime to
 		'none' via default-src, so translator code cannot make direct network
 		egress (fetch / XHR / WebSocket / <img>.src / sendBeacon / etc.) even if
@@ -35,7 +36,7 @@
 		Zotero.HTTP.request, which is overridden in offscreenFunctionOverrides.js
 		to route via messaging to the service worker.
 	-->
-	<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-eval'; form-action 'none';">
+	<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-eval'; style-src 'unsafe-inline'; form-action 'none';">
 	<title>Zotero - Offscreen Translate Sandbox</title>
 </head>
 <body>
