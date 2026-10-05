@@ -421,6 +421,8 @@ Zotero.Connector_Browser = new function() {
 			Zotero.debug(`Translation Inject: Script injection rejected ${key}`);
 			Zotero.debug(e.message);
 		} finally {
+			// Release other clicks waiting for this injection to finish.
+			deferred.resolve();
 			delete Zotero.Connector_Browser.injectTranslationScripts[key];
 		}
 	};
