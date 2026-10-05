@@ -134,7 +134,7 @@ Zotero.VirtualOffscreenTranslate = class {
 			let closingTag = `</${doc.documentElement.localName}>`;
 			html = rootHTML.slice(0, -closingTag.length)
 				+ head.outerHTML
-				+ doc.body.outerHTML
+				+ (doc.body?.outerHTML || '')
 				+ closingTag;
 		}
 		return this.sendMessage('Translate.setDocument', [html, doc.location.href, cookie]);

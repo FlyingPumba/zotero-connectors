@@ -90,6 +90,35 @@ describe("Translation", function() {
 			assert.equal(result.metaContent, 'test');
 		});
 		
+		it('handles a missing body when sanitizing the head for offscreen translation', async function () {
+			let result = await tab.run(() => {
+				let doc = document.implementation.createHTMLDocument('PDF frame');
+				doc.body.remove();
+				let iframe = doc.createElement('iframe');
+				let meta = doc.createElement('meta');
+				meta.name = 'citation_test';
+				meta.content = 'head-only';
+				doc.head.append(iframe, meta);
+				let payload;
+				Zotero.VirtualOffscreenTranslate.prototype.setDocument.call({
+					sendMessage(_message, value) { payload = value; }
+				}, {documentElement: doc.documentElement, head: doc.head, body: doc.body,
+					location: document.location, cookie: 'test=cookie'});
+				let parsedDoc = new DOMParser().parseFromString(payload[0], 'text/html');
+				return {
+					hasIframe: !!parsedDoc.querySelector('iframe'),
+					metaContent: parsedDoc.querySelector('head meta[name="citation_test"]')?.content,
+					originalUnchanged: doc.body === null && doc.head.contains(iframe),
+					url: payload[1], cookie: payload[2]
+				};
+			});
+			assert.isFalse(result.hasIframe);
+			assert.equal(result.metaContent, 'head-only');
+			assert.isTrue(result.originalUnchanged);
+			assert.equal(result.url, getExtensionURL('test/data/journalArticle-single.html'));
+			assert.equal(result.cookie, 'test=cookie');
+		});
+
 		describe("Detection", function() {
 			it('detects expected translators', async function () {
 				try {
