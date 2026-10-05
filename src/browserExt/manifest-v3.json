@@ -57,6 +57,7 @@
 		"resources": [
 			"images/*",
 			"progressWindow/progressWindow.html",
+			"research/panel.html",
 			"modalPrompt/modalPrompt.html",
 			"confirm/confirm.html",
 			"test/data/journalArticle-single.html",
