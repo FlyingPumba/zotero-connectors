@@ -74,6 +74,9 @@ function updateActivity() {
 function render(next) {
 	job = next;
 	$('actions').hidden = !!job;
+	const ordinaryContainer = job ? $('footer') : $('actions');
+	if ($('ordinary').parentElement !== ordinaryContainer) ordinaryContainer.append($('ordinary'));
+	$('footer').hidden = !job;
 	const expanded = !!job?.summary;
 	document.body.classList.toggle('results', expanded);
 	$('title').hidden = !expanded;
@@ -122,7 +125,7 @@ function render(next) {
 }
 async function refresh() {
 	try { const result = await call('status', {id: job?.id}); render(result.job); }
-	catch (e) { error(e); }
+	catch (e) { render(job); error(e); }
 	clearTimeout(timer);
 	if (job && ['ingesting', 'chatting'].includes(job.status)) timer = setTimeout(refresh, 1000);
 }

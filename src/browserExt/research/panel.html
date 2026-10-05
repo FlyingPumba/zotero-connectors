@@ -4,7 +4,7 @@
 <body>
 <header><div><span class="eyebrow">ZOTERO RESEARCH</span><h1 id="title" hidden></h1></div><button id="close" class="icon" aria-label="Close">×</button></header>
 <main>
-  <section id="actions"><button id="entry">Add entry &amp; Summarize</button><button id="pdf" class="secondary">Add PDF &amp; Summarize</button></section>
+  <section id="actions"><button id="entry">Add entry &amp; Summarize</button><button id="pdf" class="secondary">Add PDF &amp; Summarize</button><button id="ordinary" class="secondary">Save with usual workflow</button></section>
   <div id="progress" role="status" aria-live="polite"><span id="activity" aria-hidden="true"></span><div><p id="status">Connecting to Zotero…</p><p id="elapsed" aria-live="off" hidden></p></div></div>
   <p id="error" role="alert" hidden></p><button id="retry" class="secondary" hidden>Retry ingestion</button>
   <section id="categories" hidden aria-labelledby="categoriesHeading">
@@ -18,6 +18,6 @@
   <section id="approval" hidden><h2>Suggested new categories</h2><p>Choose any to create. Existing categories have already been applied.</p><div id="proposals"></div><button id="approve">Save choices &amp; open chat</button><button id="skip" class="secondary">Skip new categories &amp; open chat</button></section>
   <section id="chat" hidden><h2>Discuss the paper</h2><div id="messages" aria-live="polite"></div><div id="partial" class="markdown"></div><form id="chatForm"><textarea id="question" aria-label="Ask about the paper" rows="2" placeholder="What is the key insight behind the method?"></textarea><button id="send" type="submit">Send</button></form></section>
 </main>
-<footer><details id="session" hidden><summary>Codex session</summary><div class="session-command"><code id="sessionCommand"></code><button id="copySession" class="secondary">Copy command</button></div><span id="copyStatus" class="hint" role="status"></span></details><button id="ordinary" class="secondary">Save with usual workflow</button></footer>
+<footer id="footer" hidden><details id="session" hidden><summary>Codex session</summary><div class="session-command"><code id="sessionCommand"></code><button id="copySession" class="secondary">Copy command</button></div><span id="copyStatus" class="hint" role="status"></span></details></footer>
 <script src="../browser-polyfill.js"></script><script src="../lib/marked.js"></script><script src="../lib/dompurify.js"></script><script src="panel.js"></script>
 </body></html>
