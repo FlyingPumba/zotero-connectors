@@ -74,8 +74,6 @@ function updateActivity() {
 function render(next) {
 	job = next;
 	$('actions').hidden = !!job;
-	const ordinaryContainer = job ? $('footer') : $('actions');
-	if ($('ordinary').parentElement !== ordinaryContainer) ordinaryContainer.append($('ordinary'));
 	$('footer').hidden = !job;
 	const expanded = !!job?.summary;
 	document.body.classList.toggle('results', expanded);
@@ -131,6 +129,7 @@ async function refresh() {
 }
 async function act(action, data) {
 	if (busy) return;
+	if (action === 'start') $('ordinary').hidden = true;
 	busy = true; actionStartedAt = Date.now(); $('error').hidden = true;
 	$('progress').hidden = false; updateActivity();
 	for (const id of ['entry', 'pdf', 'approve', 'skip', 'retry', 'send']) $(id).disabled = true;
