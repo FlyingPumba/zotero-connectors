@@ -8,7 +8,7 @@ if (Zotero.isManifestV3 && window.top === window) {
 			if (message.research === 'resize') {
 				if (researchFrame && Number.isFinite(message.height) && message.height > 0) {
 					Object.assign(researchFrame.frame.style, {
-						height: `${message.height}px`, width: message.expanded ? '760px' : '460px',
+						height: `${message.height}px`, width: message.expanded ? '760px' : '360px',
 						top: message.expanded ? '50%' : '16px', right: message.expanded ? 'auto' : '16px',
 						left: message.expanded ? '50%' : 'auto', transform: message.expanded ? 'translate(-50%, -50%)' : 'none',
 						boxShadow: message.expanded ? '0 18px 80px #0005, 0 0 0 100vmax #15231f55' : '0 12px 60px #0005'
@@ -20,8 +20,8 @@ if (Zotero.isManifestV3 && window.top === window) {
 				if (!researchFrame) researchFrame = new Zotero.Frame({
 					src: Zotero.getExtensionURL('research/panel.html'), title: 'Zotero Research', allow: 'clipboard-write',
 					'data-single-file-hidden-frame': ''
-				}, {position: 'fixed', top: '16px', right: '16px', width: '460px', maxWidth: 'calc(100vw - 32px)',
-					height: '240px', maxHeight: 'min(760px, calc(100vh - 32px))', border: '0', borderRadius: '16px',
+				}, {position: 'fixed', top: '16px', right: '16px', width: '360px', maxWidth: 'calc(100vw - 32px)',
+					height: '280px', maxHeight: 'min(760px, calc(100vh - 32px))', border: '0', borderRadius: '16px',
 					boxShadow: '0 12px 60px #0005', zIndex: 2147483647, colorScheme: 'light'});
 				await researchFrame.init(); return {ok: true};
 			}

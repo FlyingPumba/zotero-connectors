@@ -72,11 +72,15 @@ try {
   assert.equal(await panel.$eval('#error', n => n.hidden), true);
 
   await panel.waitForFunction(() => document.getElementById('progress').hidden && innerHeight === Math.ceil(document.body.getBoundingClientRect().height));
-  const ready = await panel.evaluate(() => ({height: innerHeight, text: document.body.innerText,
+  const ready = await panel.evaluate(() => ({width: innerWidth, height: innerHeight, text: document.body.innerText,
+    scrollHeight: document.documentElement.scrollHeight, bottomGap: innerHeight - document.getElementById('ordinary').getBoundingClientRect().bottom,
     buttons: [...document.querySelectorAll('main button, footer button')].filter(b => b.offsetHeight).map(b => b.textContent)}));
   assert.deepEqual(ready.buttons, ['Add entry & Summarize', 'Add PDF & Summarize', 'Save with usual workflow']);
   assert.ok(!ready.text.includes('A concise research') && !ready.text.includes('Ready'));
-  assert.ok(ready.height < 300, JSON.stringify(ready));
+  assert.equal(ready.width, 360);
+  assert.ok(ready.height >= 260 && ready.height < 300, JSON.stringify(ready));
+  assert.ok(ready.bottomGap >= 24, JSON.stringify(ready));
+  assert.ok(ready.scrollHeight <= ready.height, 'All three actions must fit without a scrollbar');
   await (await panel.frameElement()).screenshot({path: output + '/zotero-panel-ready.png'});
   await panel.$eval('#entry', button => button.click());
   await panel.waitForFunction(() => document.getElementById('elapsed').textContent.includes('1m') && innerHeight === Math.ceil(document.body.getBoundingClientRect().height), {timeout: 5000}).catch(async error => {
