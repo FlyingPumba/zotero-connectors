@@ -1159,6 +1159,9 @@ Zotero.Connector_Browser = new function() {
 				Zotero.Connector_Browser._updateExtensionUI(tab);
 			});
 		}
+		else if (Zotero.isManifestV3 && !tabInfo.isPDF && /^https?:/.test(tab.url)) {
+			await Zotero.Research.show(tab);
+		}
 		else if(tabInfo.translators && tabInfo.translators.length) {
 			Zotero.Connector_Browser.saveWithTranslator(tab, 0, {fallbackOnFailure: true});
 		}
