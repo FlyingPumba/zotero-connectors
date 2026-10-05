@@ -22,10 +22,14 @@ try {
   await worker.evaluate(async () => {
     await Zotero.initDeferred.promise;
     await Zotero.Prefs.set('firstUse', false);
-    let currentJob = null;
+    let currentJob = null, statusError = 'Zotero is unavailable';
+    Zotero.Research.setStatusError = message => { statusError = message; };
     Zotero.Research.setTestJob = job => { currentJob = job; };
     Zotero.Research.call = async (method, data) => {
-      if (method === 'status') return {job: currentJob};
+      if (method === 'status') {
+        if (statusError) throw new Error(statusError);
+        return {job: currentJob};
+      }
       if (method === 'start') {
         currentJob = {id: 'ui-test', status: 'ingesting', stage: 'Reading paper and writing summary',
           mode: data.mode, title: 'Paper preview', model: 'gpt-6-astra', messages: [],
@@ -54,6 +58,19 @@ try {
   const tabID = await worker.evaluate(async url => (await browser.tabs.query({url}))[0].id, url);
   await worker.evaluate(async id => Zotero.Connector_Browser.onZoteroButtonElementClick(await browser.tabs.get(id)), tabID);
   const panel = await page.waitForFrame(f => f.url().includes('/research/panel.html'));
+  await panel.waitForFunction(() => !document.getElementById('error').hidden);
+  assert.equal(await panel.$eval('#error', n => n.textContent), 'Zotero is unavailable');
+  assert.equal(await panel.$eval('#progress', n => n.hidden), true, 'A failed initial status check must stop connecting');
+  const buttons = await panel.evaluate(() => ['entry', 'pdf', 'ordinary'].map(id => {
+    const node = document.getElementById(id), rect = node.getBoundingClientRect();
+    return {parent: node.parentElement.id, top: rect.top, bottom: rect.bottom};
+  }));
+  assert.deepEqual(buttons.map(b => b.parent), ['actions', 'actions', 'actions']);
+  assert.equal(buttons[2].top - buttons[1].bottom, buttons[1].top - buttons[0].bottom);
+  await worker.evaluate(() => Zotero.Research.setStatusError(null));
+  await panel.evaluate(() => refresh());
+  assert.equal(await panel.$eval('#error', n => n.hidden), true);
+
   await panel.waitForFunction(() => document.getElementById('progress').hidden && innerHeight === Math.ceil(document.body.getBoundingClientRect().height));
   const ready = await panel.evaluate(() => ({height: innerHeight, text: document.body.innerText,
     buttons: [...document.querySelectorAll('main button, footer button')].filter(b => b.offsetHeight).map(b => b.textContent)}));
