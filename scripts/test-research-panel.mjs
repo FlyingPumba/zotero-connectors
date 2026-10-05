@@ -57,7 +57,7 @@ try {
   await page.goto(url);
   const tabID = await worker.evaluate(async url => (await browser.tabs.query({url}))[0].id, url);
   await worker.evaluate(async id => Zotero.Connector_Browser.onZoteroButtonElementClick(await browser.tabs.get(id)), tabID);
-  const panel = await page.waitForFrame(f => f.url().includes('/research/panel.html'));
+  let panel = await page.waitForFrame(f => f.url().includes('/research/panel.html'));
   await panel.waitForFunction(() => !document.getElementById('error').hidden);
   assert.equal(await panel.$eval('#error', n => n.textContent), 'Zotero is unavailable');
   assert.equal(await panel.$eval('#progress', n => n.hidden), true, 'A failed initial status check must stop connecting');
@@ -82,7 +82,20 @@ try {
   assert.ok(ready.bottomGap >= 24, JSON.stringify(ready));
   assert.ok(ready.scrollHeight <= ready.height, 'All three actions must fit without a scrollbar');
   await (await panel.frameElement()).screenshot({path: output + '/zotero-panel-ready.png'});
-  await panel.$eval('#entry', button => button.click());
+  // Ordinary saving is an initial choice, not an action on an ingested paper.
+  const ordinaryClosed = new Promise(resolve => page.on('framedetached', frame => { if (frame === panel) resolve(); }));
+  await panel.focus('#ordinary');
+  await page.keyboard.press('Enter');
+  await worker.waitForFunction(() => Zotero.Research.ordinarySaves === 1, {timeout: 5000});
+  await ordinaryClosed;
+  assert.equal(await worker.evaluate(() => Zotero.Research.ordinarySaves), 1);
+  await worker.evaluate(async id => Zotero.Connector_Browser.onZoteroButtonElementClick(await browser.tabs.get(id)), tabID);
+  panel = await page.waitForFrame(f => f.url().includes('/research/panel.html'));
+  await panel.waitForFunction(() => document.getElementById('progress').hidden);
+  assert.equal(await panel.$eval('#entry', button => {
+    button.click();
+    return document.getElementById('ordinary').getClientRects().length;
+  }), 0, 'Ordinary saving must disappear as soon as entry summarization is selected');
   await panel.waitForFunction(() => document.getElementById('elapsed').textContent.includes('1m') && innerHeight === Math.ceil(document.body.getBoundingClientRect().height), {timeout: 5000}).catch(async error => {
     console.log(await panel.evaluate(() => ({height: innerHeight, bodyHeight: document.body.getBoundingClientRect().height, text: document.body.innerText, job, busy})));
     throw error;
@@ -90,6 +103,7 @@ try {
   const progress = await panel.evaluate(() => ({height: innerHeight, elapsed: document.getElementById('elapsed').textContent,
     stage: document.getElementById('status').textContent, active: !document.getElementById('activity').hidden}));
   assert.ok(progress.active && progress.stage.startsWith('Codex:'));
+  assert.equal(await panel.$eval('#ordinary', n => n.getClientRects().length), 0);
   assert.ok(progress.elapsed.includes('gpt-6-astra'));
   assert.ok(progress.height < 240, JSON.stringify(progress));
   await (await panel.frameElement()).screenshot({path: output + '/zotero-panel-progress.png'});
@@ -103,6 +117,7 @@ try {
   await panel.evaluate(() => refresh());
   await panel.waitForFunction(() => innerHeight === 760);
   assert.equal(await panel.$eval('#chat', n => n.hidden), true);
+  assert.equal(await panel.$eval('#ordinary', n => n.getClientRects().length), 0);
   assert.equal(await panel.$eval('#activity', n => n.hidden), true);
   job.summary = 'A saved result.';
   await worker.evaluate(job => Zotero.Research.setTestJob(job), job);
@@ -161,8 +176,19 @@ try {
   await panel.waitForFunction(() => !busy && job.messages.some(m => m.text === '**Same session.**'));
   assert.equal(await worker.evaluate(() => Zotero.Research.chatVerified), true);
   const closed = new Promise(resolve => page.on('framedetached', frame => { if (frame === panel) resolve(); }));
-  await panel.click('#ordinary');
+  assert.equal(await panel.$eval('#ordinary', n => n.getClientRects().length), 0);
+  await panel.click('#close');
   await closed;
+  await worker.evaluate(() => Zotero.Research.setTestJob(null));
+  await worker.evaluate(async id => Zotero.Connector_Browser.onZoteroButtonElementClick(await browser.tabs.get(id)), tabID);
+  panel = await page.waitForFrame(f => f.url().includes('/research/panel.html'));
+  await panel.waitForFunction(() => document.getElementById('progress').hidden);
+  assert.equal(await panel.$eval('#pdf', button => {
+    button.click();
+    return document.getElementById('ordinary').getClientRects().length;
+  }), 0, 'Ordinary saving must disappear as soon as PDF summarization is selected');
+  await panel.waitForFunction(() => job?.mode === 'pdf' && !busy);
+  assert.equal(await panel.$eval('#ordinary', n => n.getClientRects().length), 0);
   assert.equal(await worker.evaluate(() => Zotero.Research.ordinarySaves), 1);
   console.log(JSON.stringify({ready, progress, longContentCapsAt760: true, shrinksAfterContentChange: true,
     categoryGateAndOrdinarySavePreserved: true, centered: rect, categoryEditingAndMarkdown: true, narrow}, null, 2));
