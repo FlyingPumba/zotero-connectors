@@ -52,6 +52,10 @@ See https://github.com/zotero/safari-app-extension
 As files are changed, the connectors will be rebuilt automatically. You will need to manually reload the extension
 in the browser being developed for.
 
+## Research workflow tests
+
+Run `npm run test:research` to build the Chrome extension and test its toolbar and Research panel in temporary Chrome profiles. Google Chrome must already be installed. The tests use Chrome's actual toolbar action, including a tab opened before the extension is installed, repeated clicks, and panel reopening. They also check summary layout, category editing, Markdown chat, and ordinary saving. The Zotero backend is stubbed, so these tests do not save library items or invoke Codex.
+
 ## Requirements for packaging extensions from the command line
 
 * Copy `config.sh-sample` to `config.sh` and modify as necessary
