@@ -25,7 +25,7 @@ browser.runtime.onMessage.addListener((message, sender) => {
 		await Zotero.initDeferred.promise;
 		const tab = await browser.tabs.get(sender.tab.id);
 		const data = message.data || {};
-		if (message.action === 'resize') return browser.tabs.sendMessage(tab.id, {research: 'resize', height: data.height}, {frameId: 0});
+		if (message.action === 'resize') return browser.tabs.sendMessage(tab.id, {research: 'resize', height: data.height, expanded: data.expanded}, {frameId: 0});
 		if (message.action === 'close') return browser.tabs.sendMessage(tab.id, {research: 'hide'}, {frameId: 0});
 		if (message.action === 'ordinary') {
 			const info = Zotero.Connector_Browser.getTabInfo(tab.id);
@@ -36,6 +36,11 @@ browser.runtime.onMessage.addListener((message, sender) => {
 		}
 		if (message.action === 'status') return Zotero.Research.call('status', {id: data.id, url: tab.url});
 		if (message.action === 'approve') return Zotero.Research.call('approve', {id: data.id, selected: data.selected});
+		if (message.action === 'category') return Zotero.Research.call('category', data);
+		if (message.action === 'chat') {
+			const {job} = await Zotero.Research.call('status', {id: data.id});
+			if (job?.threadId) return Zotero.Research.call('chat', data);
+		}
 		if (['start', 'chat', 'retry'].includes(message.action)) {
 			await Zotero.Research.call('status', {url: tab.url});
 			const extracted = await browser.tabs.sendMessage(tab.id,
