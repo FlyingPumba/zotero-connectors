@@ -36,12 +36,16 @@ browser.runtime.onMessage.addListener((message, sender) => {
 				? Zotero.Connector.prefs.automaticSnapshots : Zotero.Prefs.get('automaticSnapshots')});
 			return {ok: true};
 		}
-		if (message.action === 'status') return Zotero.Research.call('status', {id: data.id, url: tab.url});
+		if (message.action === 'status') {
+			const binding = (await browser.storage.session.get('researchTab:' + tab.id))['researchTab:' + tab.id];
+			return Zotero.Research.call('status', {id: data.id || binding?.id, url: tab.url, reconnect: data.reconnect});
+		}
+		if (message.action === 'command') return Zotero.Research.call('command', {id: data.id});
 		if (message.action === 'approve') return Zotero.Research.call('approve', {id: data.id, selected: data.selected});
 		if (message.action === 'category') return Zotero.Research.call('category', data);
 		if (message.action === 'chat') {
-			const {job} = await Zotero.Research.call('status', {id: data.id});
-			if (job?.threadId) return Zotero.Research.call('chat', data);
+			const {job} = await Zotero.Research.call('status', {id: data.id, reconnect: true});
+			if (job?.threadId && !job.sessionMissing) return Zotero.Research.call('chat', data);
 		}
 		if (['start', 'chat', 'retry'].includes(message.action)) {
 			await Zotero.Research.call('status', {url: tab.url});
@@ -53,3 +57,32 @@ browser.runtime.onMessage.addListener((message, sender) => {
 		throw new Error('Unknown paper action.');
 	})().catch(error => ({error: error.message}));
 });
+
+// Zotero opens a local landing page with an opaque token. Only the extension
+// resolves it, so neither item keys nor conversation data go to the paper site.
+Zotero.Research.openHandoff = async function(tab) {
+	await Zotero.initDeferred.promise;
+	const url = new URL(tab.url);
+	const launch = await this.call('handoff', {token: url.searchParams.get('token')});
+	await browser.storage.session.set({['researchTab:' + tab.id]: {...launch, opening: true}});
+	await browser.tabs.update(tab.id, {url: launch.url});
+};
+browser.tabs.onUpdated.addListener((id, change, tab) => {
+	if (change.status !== 'complete') return;
+	(async () => {
+		await Zotero.initDeferred.promise;
+		if (!Zotero.isManifestV3) return;
+		const url = new URL(tab.url);
+		if (url.protocol === 'http:' && url.hostname === '127.0.0.1' && url.pathname === '/connector/research/open' && url.searchParams.has('token')) {
+			await Zotero.Research.openHandoff(tab); return;
+		}
+		const key = 'researchTab:' + id, binding = (await browser.storage.session.get(key))[key];
+		if (binding?.opening) {
+			await Zotero.Research.show(tab);
+			await browser.storage.session.set({[key]: {...binding, opening: false, displayedURL: tab.url}});
+		} else if (binding && binding.displayedURL !== tab.url) {
+			await browser.storage.session.remove(key);
+		}
+	})().catch(error => Zotero.logError(error));
+});
+browser.tabs.onRemoved.addListener(id => { if (Zotero.isManifestV3) browser.storage.session.remove('researchTab:' + id).catch(error => Zotero.logError(error)); });

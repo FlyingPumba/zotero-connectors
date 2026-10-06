@@ -30,6 +30,7 @@ try {
         if (statusError) throw new Error(statusError);
         return {job: currentJob};
       }
+      if (method === 'command') return {command: 'codex resume ' + currentJob.threadId};
       if (method === 'start') {
         currentJob = {id: 'ui-test', status: 'ingesting', stage: 'Reading paper and writing summary',
           mode: data.mode, title: 'Paper preview', model: 'gpt-6-astra', messages: [],
