@@ -15,6 +15,24 @@ function markdown(node, text) {
 	});
 	for (const link of node.querySelectorAll('a')) { link.target = '_blank'; link.rel = 'noopener noreferrer'; }
 }
+function renderSavedDiscussion(html) {
+	const template = document.createElement('template');
+	template.innerHTML = DOMPurify.sanitize(html);
+	let content;
+	for (const node of [...template.content.childNodes]) {
+		if (node.nodeName === 'H2' && ['User', 'Assistant'].includes(node.textContent)) {
+			const block = document.createElement('div'), name = document.createElement('strong');
+			block.className = 'message ' + node.textContent.toLowerCase();
+			name.className = 'message-role'; name.textContent = node.textContent;
+			content = document.createElement('div'); content.className = 'markdown';
+			block.append(name, content); $('messages').append(block);
+		} else {
+			if (!content) { content = document.createElement('div'); content.className = 'markdown'; $('messages').append(content); }
+			content.append(node);
+		}
+	}
+	for (const link of $('messages').querySelectorAll('a')) { link.target = '_blank'; link.rel = 'noopener noreferrer'; }
+}
 function renderCategories() {
 	const snapshot = JSON.stringify([job.existingCollections, job.availableCollections, categoryBusy]);
 	if (snapshot === categorySnapshot) return;
@@ -83,15 +101,16 @@ function render(next) {
 	job = next;
 	$('actions').hidden = !!job;
 	$('footer').hidden = !job;
-	const expanded = !!job?.summary;
+	const expanded = !!job && (['ready', 'chatting'].includes(job.status) || !!job.summary);
 	document.body.classList.toggle('results', expanded);
 	$('title').hidden = !expanded;
-	$('paper').hidden = !expanded;
+	$('paper').hidden = !job?.summary;
 	$('categories').hidden = !expanded;
 	$('status').textContent = job ? (/^Reading paper and/.test(job.stage) ? `Codex: ${job.stage}` : job.stage) : '';
 	updateProgress();
-	$('error').hidden = !job?.error;
-	if (job?.error) $('error').textContent = job.error;
+	$('error').hidden = !(job?.error || job?.reconnectError);
+	if (job?.error || job?.reconnectError) $('error').textContent = job.error || job.reconnectError;
+	$('notice').hidden = !job?.notice; $('notice').textContent = job?.notice || '';
 	$('retry').hidden = job?.status !== 'error';
 	const reviewPending = ['ready', 'chatting'].includes(job?.status) && !!job?.proposedCollections?.length && !Array.isArray(job.approved);
 	$('approval').hidden = !reviewPending;
@@ -102,7 +121,7 @@ function render(next) {
 	$('coverage').textContent = job.sourceInfo?.warning || '';
 	$('coverage').hidden = !job.sourceInfo?.warning;
 	renderCategories();
-	$('session').hidden = !job.threadId;
+	$('session').hidden = !job.threadId || job.sessionMissing;
 	$('sessionCommand').textContent = job.threadId ? `codex resume ${job.threadId}` : '';
 	if (reviewPending && approvalID !== job.id) {
 		approvalID = job.id; $('proposals').replaceChildren();
@@ -113,10 +132,11 @@ function render(next) {
 			reason.textContent = proposal.reason; label.append(reason); $('proposals').append(label);
 		});
 	}
-	const snapshot = JSON.stringify(job.messages);
+	const snapshot = JSON.stringify([job.messages, job.discussionHTML]);
 	if (snapshot !== messageSnapshot) {
 		messageSnapshot = snapshot; $('messages').replaceChildren();
-		for (const message of job.messages || []) {
+		if (job.discussionHTML != null) renderSavedDiscussion(job.discussionHTML);
+		for (const message of (job.messages || []).slice(job.discussionHTML == null ? 0 : job.discussionMessageCount || 0)) {
 			const block = document.createElement('div'), name = document.createElement('strong');
 			block.className = 'message ' + message.role; name.className = 'message-role'; name.textContent = message.role === 'user' ? 'User' : 'Assistant';
 			const content = document.createElement('div');
@@ -130,8 +150,8 @@ function render(next) {
 	$('send').disabled = busy || job.status === 'chatting';
 	$('question').disabled = job.status === 'chatting';
 }
-async function refresh() {
-	try { const result = await call('status', {id: job?.id}); render(result.job); }
+async function refresh(reconnect = false) {
+	try { const result = await call('status', {id: job?.id, reconnect}); render(result.job); }
 	catch (e) { render(job); error(e); }
 	clearTimeout(timer);
 	if (job && ['ingesting', 'chatting'].includes(job.status)) timer = setTimeout(refresh, 1000);
@@ -174,8 +194,8 @@ document.addEventListener('keydown', event => {
 	else call('close').catch(error);
 });
 $('copySession').onclick = async () => {
-	try { await navigator.clipboard.writeText($('sessionCommand').textContent); $('copyStatus').textContent = 'Copied'; }
-	catch { $('copyStatus').textContent = 'Select the command above to copy it.'; }
+	try { const result = await call('command', {id: job.id}); $('sessionCommand').textContent = result.command; await navigator.clipboard.writeText(result.command); $('copyStatus').textContent = 'Copied'; }
+	catch (e) { $('copyStatus').textContent = e.message; }
 };
 let lastSize;
 new ResizeObserver(() => {
@@ -187,4 +207,4 @@ new ResizeObserver(() => {
 	call('resize', {height, expanded}).catch(console.error);
 }).observe(document.body);
 setInterval(updateActivity, 1000);
-refresh();
+refresh(true);
