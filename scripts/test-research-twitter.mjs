@@ -20,15 +20,37 @@ const second = post('102', '2/ Paper:', card + '<div role="link"><div data-testi
 try {
   const target = await browser.waitForTarget(t => t.type() === 'service_worker' && t.url().endsWith('background-worker.js'));
   const worker = await target.worker();
+  // Optional network check using Chrome's real User-Agent against the reported
+  // thread's short links. It resolves URLs only, without saving or reading papers.
+  if (process.argv.includes('--live-twitter-links')) {
+    const live = await worker.evaluate(async () => {
+      await Zotero.initDeferred.promise;
+      return Zotero.Research.paperLinks({posts: [
+        {text: '10/ Concurrent works', links: [
+          {url: 'https://t.co/XESTOV3qgF', label: 'https://arxiv.org/abs/2605.02105'},
+          {url: 'https://t.co/P2SHfJW76x', label: 'https://arxiv.org/abs/2603.16127'}]},
+        {text: '11/ With the authors.\nPaper:', links: [
+          {url: 'https://t.co/AamI5PZHvk', label: 'arxiv.org(How) Learning Rates Regulate Catastrophic Overtraining', card: true}]}
+      ]});
+    });
+    assert.deepEqual(live.map(p => p.url), ['https://arxiv.org/abs/2605.02105', 'https://arxiv.org/abs/2603.16127', 'https://arxiv.org/abs/2604.13627']);
+    assert.equal(live.find(p => p.primary)?.url, 'https://arxiv.org/abs/2604.13627');
+    console.log('PASS: real Chrome requests resolve all three paper links in the reported thread and identify its main paper');
+  }
   await worker.evaluate(async paperURL => {
     await Zotero.initDeferred.promise; await Zotero.Prefs.set('firstUse', false);
     await Zotero.Prefs.set('connector.url', 'http://127.0.0.1:1/');
     const originalFetch = fetch;
-    Zotero.Research.testHeads = []; Zotero.Research.testStarts = []; Zotero.Research.testOrdinary = 0;
+    Zotero.Research.testLinkRequests = []; Zotero.Research.testStarts = []; Zotero.Research.testOrdinary = 0;
+    Zotero.Research.testRedirectMode = 'html';
     self.fetch = async (url, options) => {
       if (String(url).startsWith('https://t.co/')) {
-        Zotero.Research.testHeads.push({url, method: options?.method});
-        return {url: paperURL, headers: new Headers({'Content-Type': 'application/pdf'})};
+        Zotero.Research.testLinkRequests.push({url, method: options?.method, redirect: options?.redirect});
+        if (Zotero.Research.testRedirectMode === 'http') return {url: paperURL, headers: new Headers({'Content-Type': 'application/pdf'})};
+        // Actual t.co browser response: HEAD stays on t.co; GET returns a script
+        // redirect. Parsing its JSON string must never execute the script.
+        return {url, headers: new Headers({'Content-Type': 'text/html'}),
+          text: async () => `<head><noscript><META http-equiv="refresh" content="0;URL=${paperURL}"></noscript><title>${paperURL}</title></head><script>window.opener = null; location.replace(${JSON.stringify(paperURL).replaceAll('/', '\\/')})</script>`};
       }
       return originalFetch(url, options);
     };
@@ -76,8 +98,16 @@ try {
     assert.ok(!(await browser.pages()).some(p => p.url() === paperURL), 'Temporary paper tab is closed');
     await panel.locator('#close').click();
   }
-  const heads = await worker.evaluate(() => Zotero.Research.testHeads);
-  assert.ok(heads.length > 0 && heads.every(r => r.method === 'HEAD' && r.url === 'https://t.co/paper'));
+  const linkRequests = await worker.evaluate(() => Zotero.Research.testLinkRequests);
+  assert.deepEqual(linkRequests.map(r => r.method), ['HEAD', 'GET', 'HEAD', 'GET']);
+  assert.ok(linkRequests.every(r => r.url === 'https://t.co/paper'));
+  assert.ok(linkRequests.filter(r => r.method === 'GET').every(r => r.redirect === 'manual'), 'Never download other linked pages while resolving destinations');
+  const httpRedirect = await worker.evaluate(async () => {
+    Zotero.Research.testRedirectMode = 'http';
+    try { return await Zotero.Research.resolveTwitterLink('https://t.co/paper'); }
+    finally { Zotero.Research.testRedirectMode = 'html'; }
+  });
+  assert.equal(httpRedirect.url, paperURL);
   console.log('PASS: both Add modes follow the paper, use its metadata, capture only the main thread with pictures/quotes, and leave other links untouched');
 
   html = '<!doctype html><title>Twitter</title>' + first + post('102', `Related work: <a href="${paperURL}">First.pdf</a> and <a href="${paperURL}?v=2">Second.pdf</a>`)
