@@ -70,6 +70,28 @@ body {
 	display: block;
 }
 
+#content-research .research-setting {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	margin-top: 20px;
+}
+
+#content-research .research-setting label {
+	width: 125px;
+	flex-shrink: 0;
+}
+
+#content-research select {
+	font: inherit;
+	min-width: 220px;
+	padding: 4px;
+}
+
+#research-status.error {
+	color: #942222;
+}
+
 .group {
 	border-radius: 5px;
 	border-width: 1px;
