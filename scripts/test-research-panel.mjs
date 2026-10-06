@@ -139,6 +139,14 @@ try {
   assert.equal(await panel.$eval('#title', n => n.parentElement.parentElement.tagName), 'HEADER');
   assert.equal(await panel.$('label[for="question"]'), null);
   await panel.click('#categoryPicker > summary');
+  await panel.click('#categorySearch');
+  assert.equal(await panel.$eval('#categoryPicker', n => n.open), true, 'Clicks inside the picker keep it open');
+  await panel.click('#title');
+  assert.equal(await panel.$eval('#categoryPicker', n => n.open), false, 'Clicks elsewhere in the panel close the picker');
+  await panel.click('#categoryPicker > summary');
+  await page.click('h1');
+  assert.equal(await panel.$eval('#categoryPicker', n => n.open), false, 'Clicks on the surrounding page close the picker');
+  await panel.click('#categoryPicker > summary');
   await panel.type('#categorySearch', 'Oversight');
   assert.equal(await panel.$$eval('#categoryOptions label:not([hidden])', nodes => nodes.length), 1);
   await panel.click('input[data-key="b"]');
@@ -146,6 +154,8 @@ try {
   assert.equal(await panel.$eval('#categoryChips', n => n.children.length), 2);
   await panel.click('.chip-remove[aria-label="Remove Machine learning / Attention"]');
   await panel.waitForFunction(() => document.getElementById('categoryChips').children.length === 1);
+  assert.equal(await panel.$eval('#categoryPicker', n => n.open), false);
+  await panel.click('#categoryPicker > summary');
   await panel.$eval('#categorySearch', n => { n.value = ''; n.dispatchEvent(new Event('input')); });
   await panel.click('input[data-key="fail"]');
   await panel.waitForFunction(() => document.getElementById('categoryStatus').textContent === 'Category save failed');

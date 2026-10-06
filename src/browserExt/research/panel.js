@@ -163,6 +163,10 @@ $('retry').onclick = () => act('retry', {id: job.id});
 $('chatForm').onsubmit = event => { event.preventDefault(); const question = $('question').value.trim(); if (question) act('chat', {id: job.id, question}); };
 $('categorySearch').oninput = filterCategories;
 $('categoryPicker').ontoggle = () => { if ($('categoryPicker').open) $('categorySearch').focus(); };
+document.addEventListener('pointerdown', event => {
+	if (!$('categoryPicker').contains(event.target)) $('categoryPicker').open = false;
+});
+window.addEventListener('blur', () => { $('categoryPicker').open = false; });
 document.addEventListener('keydown', event => {
 	if (event.key !== 'Escape') return;
 	if ($('categoryPicker').open) { $('categoryPicker').open = false; $('categoryPicker').querySelector('summary').focus(); }
