@@ -227,10 +227,24 @@ try {
   assert.ok(narrow.x >= 15 && narrow.y >= 15 && narrow.height <= 668, JSON.stringify(narrow));
   await page.setViewport({width: 1100, height: 900});
   await panel.waitForFunction(() => innerWidth === 760);
-  await panel.type('#question', 'Continue the discussion.');
-  await panel.focus('#send');
+  await panel.evaluate(() => refresh()); // Restore backend state after the render-only Markdown fixture.
+  const messagesBeforeShortcut = await panel.evaluate(() => job.messages.length);
+  await panel.focus('#question');
+  await page.keyboard.down('Meta');
   await page.keyboard.press('Enter');
+  await page.keyboard.up('Meta');
+  assert.equal(await panel.evaluate(() => job.messages.length), messagesBeforeShortcut, 'Cmd+Enter must not send an empty message');
+  await panel.type('#question', 'Continue the discussion.');
+  await page.keyboard.press('Enter');
+  await panel.type('#question', 'Explain the details.');
+  assert.equal(await panel.$eval('#question', n => n.value), 'Continue the discussion.\nExplain the details.', 'Enter inserts a newline');
+  assert.equal(await panel.evaluate(() => job.status), 'ready', 'Enter does not send the message');
+  await page.keyboard.down('Meta');
+  await page.keyboard.press('Enter');
+  await page.keyboard.up('Meta');
   await panel.waitForFunction(() => !busy && job.status === 'chatting');
+  assert.equal(await panel.evaluate(() => job.messages.length), messagesBeforeShortcut + 1, 'Cmd+Enter sends exactly one message');
+  assert.equal(await panel.evaluate(() => job.messages.at(-1).text), 'Continue the discussion.\nExplain the details.');
   const chatProgress = await panel.evaluate(() => {
     const progress = $('progress'), message = $('messages').lastElementChild;
     return {visible: progress.getClientRects().length > 0, parent: progress.parentElement.id,
@@ -293,6 +307,12 @@ try {
   assert.equal(await panel.$eval('#chat', n => n.hidden), false);
   assert.equal(await panel.$eval('#produceSummary', n => n.disabled), true);
   assert.equal(await panel.$eval('#send', n => n.disabled), true);
+  await panel.type('#question', 'Wait until the summary finishes.');
+  await page.keyboard.down('Meta');
+  await page.keyboard.press('Enter');
+  await page.keyboard.up('Meta');
+  assert.equal(await panel.evaluate(() => job.status), 'summarizing', 'Cmd+Enter respects the disabled Send button');
+  assert.equal(await panel.$eval('#question', n => n.value), 'Wait until the summary finishes.');
   await worker.evaluate(job => Zotero.Research.setTestJob({...job, error: 'Summary failed'}), noSummary);
   await panel.waitForFunction(() => job.status === 'ready');
   assert.equal(await panel.$eval('#produceSummary', n => n.disabled), false, 'Summary failures can be retried');
