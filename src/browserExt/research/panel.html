@@ -14,9 +14,9 @@
       <div class="category-menu"><input id="categorySearch" type="search" placeholder="Find a category…" aria-label="Find a category" autocomplete="off"><div id="categoryOptions"></div><p id="noCategories" class="hint" hidden>No matching categories</p></div>
     </details>
   </section>
-  <section id="paper" hidden><h2>Summary</h2><p id="summary"></p><p id="coverage" class="hint" hidden></p></section>
   <section id="approval" hidden><h2>Suggested new categories</h2><p>Choose any to create. Existing categories have already been applied.</p><div id="proposals"></div><button id="approve">Save choices &amp; open chat</button><button id="skip" class="secondary">Skip new categories &amp; open chat</button></section>
-  <section id="chat" hidden><h2>Discuss the paper</h2><div id="messages" aria-live="polite"></div><div id="partial" class="markdown"></div><form id="chatForm"><textarea id="question" aria-label="Ask about the paper" rows="2" placeholder="What is the key insight behind the method?"></textarea><button id="send" type="submit">Send</button></form></section>
+  <section id="paper" hidden><h2>Summary</h2><p id="summary"></p><p id="coverage" class="hint" hidden></p></section>
+  <section id="chat" hidden><h2>Discussion</h2><div id="messages" aria-live="polite"></div><div id="partial" class="markdown"></div><form id="chatForm"><textarea id="question" aria-label="Ask about the paper" rows="2" placeholder="What is the key insight behind the method?"></textarea><button id="send" type="submit">Send</button></form></section>
 </main>
 <footer id="footer" hidden><details id="session" hidden><summary>Codex session</summary><div class="session-command"><code id="sessionCommand"></code><button id="copySession" class="secondary">Copy command</button></div><span id="copyStatus" class="hint" role="status"></span></details></footer>
 <script src="../browser-polyfill.js"></script><script src="../lib/marked.js"></script><script src="../lib/dompurify.js"></script><script src="panel.js"></script>
