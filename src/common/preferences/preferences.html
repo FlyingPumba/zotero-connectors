@@ -32,6 +32,10 @@
 				<div class="pane-image"><img src="../images/prefs-proxies.png" alt=""/></div>
 				<a href="#proxies" class="pane-label" data-l10n-id="preferences_proxies">Proxies</a>
 			</div>
+			<div id="pane-research" class="pane">
+				<div class="pane-image"><svg width="32" height="32" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M16 7C12 4 7 4 3 5v22c4-1 9-1 13 2 4-3 9-3 13-2V5c-4-1-9-1-13 2v22"/><path d="M7 10h5m-5 5h5m8-5h5m-5 5h5"/></svg></div>
+				<a href="#research" class="pane-label">Research</a>
+			</div>
 			<div id="pane-advanced" class="pane">
 				<div class="pane-image"><img src="../images/prefs-advanced.png" alt=""/></div>
 				<a href="#advanced" class="pane-label" data-l10n-id="preferences_advanced">Advanced</a>
@@ -78,6 +82,21 @@
 		</div>
 		<!-- React Component -->
 		<div id="content-proxies" class="content"></div>
+		<div id="content-research" class="content">
+			<div class="group">
+				<div class="group-title">Research model</div>
+				<div class="group-content">
+					<p>Choose the model and reasoning effort for paper summaries and discussions. Changes apply to your next request.</p>
+					<p>Settings are saved in Zotero. Keep Zotero open while changing them.</p>
+					<div class="research-setting"><label for="research-model">Model</label><select id="research-model" disabled aria-describedby="research-model-description"></select></div>
+					<p id="research-model-description"></p>
+					<div class="research-setting"><label for="research-effort">Reasoning effort</label><select id="research-effort" disabled aria-describedby="research-effort-description"></select></div>
+					<p id="research-effort-description"></p>
+					<p><input type="button" id="research-save" value="Save" disabled/><input type="button" id="research-retry" value="Retry" hidden/></p>
+					<p id="research-status" role="status" aria-live="polite"></p>
+				</div>
+			</div>
+		</div>
 		<div id="content-advanced" class="content">
 			<div class="group">
 				<div class="group-title" data-l10n-id="preferences_reportErrors">Report Errors</div>
