@@ -9,6 +9,19 @@ Zotero.Research = {
 	async progress(tab, stage) {
 		await browser.tabs.sendMessage(tab.id, {research: 'preparing', stage}).catch(() => {});
 	},
+	async resolveTwitterLink(url) {
+		const options = {signal: AbortSignal.timeout(20000), credentials: 'omit'};
+		const response = await fetch(url, {...options, method: 'HEAD'});
+		const target = {url: response.url, pdf: /application\/pdf/i.test(response.headers.get('Content-Type') || '')};
+		if (new URL(target.url).hostname === 't.co') {
+			// For Chrome, t.co returns an HTML redirect instead of an HTTP one.
+			// Read only that page, without following or executing its redirect.
+			const landing = await fetch(url, {...options, method: 'GET', redirect: 'manual'});
+			const redirect = (await landing.text()).match(/\blocation\.replace\(\s*("(?:[^"\\]|\\.)*")\s*\)/);
+			if (redirect) target.url = JSON.parse(redirect[1]);
+		}
+		return target;
+	},
 	async paperLinks(thread) {
 		const candidates = new Map();
 		const resolved = new Map();
@@ -21,8 +34,7 @@ Zotero.Research = {
 					// resources remain links in the saved note.
 					if (!primary && !/arxiv\.org|\.pdf\b|openreview\.net\/pdf/i.test(link.label)) continue;
 					if (!resolved.has(url.href)) {
-						const response = await fetch(url.href, {method: 'HEAD', signal: AbortSignal.timeout(20000), credentials: 'omit'});
-						resolved.set(url.href, {url: response.url, pdf: /application\/pdf/i.test(response.headers.get('Content-Type') || '')});
+						resolved.set(url.href, await this.resolveTwitterLink(url.href));
 					}
 					const target = resolved.get(url.href);
 					url = new URL(target.url); pdf = target.pdf || /\.pdf(?:$|[?#])/i.test(url.href);
