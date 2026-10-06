@@ -27,6 +27,10 @@ if (Zotero.isManifestV3 && window.top === window) {
 			}
 			if (message.research !== 'extract') return;
 			const source = {url: location.href, pageText: document.body?.innerText || '', pdfURLs: []};
+			const citationPDFSource = document.querySelector('meta[name="citation_pdf_url"]')?.content;
+			if (citationPDFSource) source.pdfURLs.push(new URL(citationPDFSource, location.href).href);
+			if (/^(www\.)?arxiv\.org$/.test(location.hostname) && location.pathname.startsWith('/abs/')) source.pdfURLs.push('https://arxiv.org/pdf/' + location.pathname.slice(5));
+			if (/\.pdf(?:$|[?#])/i.test(location.href) || document.contentType === 'application/pdf') source.pdfURLs.push(location.href);
 			if (!message.metadata) return {source};
 			let item;
 			const translators = Zotero.PageSaving.translators;
