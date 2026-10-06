@@ -49,7 +49,7 @@ try {
         currentJob.existingCollections = currentJob.existingCollections.filter(c => c.key !== data.key);
         if (data.selected) currentJob.existingCollections.push(currentJob.availableCollections.find(c => c.key === data.key));
       }
-      if (method === 'approve') currentJob = {...currentJob, status: 'ready', stage: 'Ready to discuss'};
+      if (method === 'approve') currentJob = {...currentJob, approved: data.selected};
       return currentJob;
     };
     Zotero.Research.ordinarySaves = 0;
@@ -112,7 +112,7 @@ try {
   assert.ok(progress.height < 240, JSON.stringify(progress));
   await (await panel.frameElement()).screenshot({path: output + '/zotero-panel-progress.png'});
   await panel.waitForFunction(previous => document.getElementById('elapsed').textContent !== previous, {}, progress.elapsed);
-  const job = {id: 'ui-test', status: 'awaiting_approval', stage: 'Review proposed categories', title: 'Paper preview',
+  const job = {id: 'ui-test', status: 'ready', stage: 'Ready to discuss', title: 'Paper preview',
     summary: 'A saved result. '.repeat(150), messages: [], existingCollections: [{key: 'a', path: 'Machine learning / Attention'}],
     availableCollections: [{key: 'a', path: 'Machine learning / Attention'}, {key: 'b', path: 'Safety / Oversight'}, {key: 'fail', path: 'Broken category'}],
     threadId: '019-test-persistent-session', model: 'gpt-6-astra', sourceInfo: {kind: 'PDF text'},
@@ -120,7 +120,7 @@ try {
   await worker.evaluate(job => Zotero.Research.setTestJob(job), job);
   await panel.evaluate(() => refresh());
   await panel.waitForFunction(() => innerHeight === 760);
-  assert.equal(await panel.$eval('#chat', n => n.hidden), true);
+  assert.equal(await panel.$eval('#chat', n => n.hidden), false, 'Chat is available before category review');
   assert.equal(await panel.$eval('#coverage', n => n.hidden), true);
   assert.equal(await panel.$eval('#ordinary', n => n.getClientRects().length), 0);
   assert.equal(await panel.$eval('#activity', n => n.hidden), true);
@@ -132,10 +132,37 @@ try {
   assert.deepEqual(await panel.$$eval('#categories, #approval, #paper, #chat', nodes => nodes.map(n => n.id)),
     ['categories', 'approval', 'paper', 'chat'], 'Category suggestions belong above the summary and discussion');
   assert.equal(await panel.$eval('#approval', n => n.hidden), false);
+  const approvalButtons = await panel.$$eval('.approval-actions button', nodes => nodes.map(n => ({text: n.textContent,
+    top: n.getBoundingClientRect().top, left: n.getBoundingClientRect().left, right: n.getBoundingClientRect().right})));
+  assert.deepEqual(approvalButtons.map(b => b.text), ['Save choices', 'Skip new categories']);
+  assert.equal(approvalButtons[0].top, approvalButtons[1].top, 'Review buttons share a row');
+  assert.ok(approvalButtons[0].right < approvalButtons[1].left);
   await page.screenshot({path: output + '/zotero-category-proposals.png'});
 
+  await panel.click('#proposals input');
+  await panel.type('#question', 'Discuss before category review.');
+  await panel.focus('#send');
+  await page.keyboard.press('Enter');
+  await panel.waitForFunction(() => !busy && job.status === 'chatting');
+  assert.equal(await panel.$eval('#approval', n => n.hidden), false, 'Suggestions stay visible during a reply');
+  assert.equal(await panel.$eval('#proposals input', n => n.checked), true, 'Chat does not reset pending selections');
   await panel.click('#skip');
-  await panel.waitForFunction(() => !document.getElementById('chat').hidden);
+  await panel.waitForFunction(() => !busy && document.getElementById('approval').hidden);
+  assert.equal(await panel.$eval('#chat', n => n.hidden), false);
+  assert.equal(await panel.$eval('#send', n => n.disabled), true, 'Skipping categories must not finish the active reply');
+  const pendingReply = await panel.evaluate(() => job);
+  assert.equal(pendingReply.status, 'chatting');
+  assert.deepEqual(pendingReply.approved, []);
+  await worker.evaluate(job => Zotero.Research.setTestJob({...job, status: 'ready',
+    messages: [...job.messages, {role: 'assistant', text: 'A reply independent of category review.'}]}), pendingReply);
+  await panel.waitForFunction(() => job.status === 'ready' && !document.getElementById('send').disabled);
+  assert.equal(await panel.$eval('#approval', n => n.hidden), true);
+  // Restore the short fixture before the independent category-picker checks.
+  await worker.evaluate(async () => {
+    const {job} = await Zotero.Research.call('status');
+    Zotero.Research.setTestJob({...job, messages: []});
+  });
+  await panel.evaluate(async () => { await refresh(); window.scrollTo(0, 0); });
   await panel.waitForFunction(() => innerWidth === 760 && innerHeight === Math.min(760, Math.ceil(document.body.getBoundingClientRect().height)));
   const rect = await (await panel.frameElement()).boundingBox();
   assert.ok(Math.abs(rect.x + rect.width / 2 - 550) < 2, JSON.stringify(rect));
@@ -262,7 +289,7 @@ try {
   assert.equal(await panel.$eval('#ordinary', n => n.getClientRects().length), 0);
   assert.equal(await worker.evaluate(() => Zotero.Research.ordinarySaves), 1);
   console.log(JSON.stringify({ready, progress, longContentCapsAt760: true, shrinksAfterContentChange: true,
-    categoryGateAndOrdinarySavePreserved: true, chatProgress, streamingReplacesProgress: true, centered: rect, categoryEditingAndMarkdown: true, narrow}, null, 2));
+    independentCategoryReviewAndOrdinarySavePreserved: true, chatProgress, streamingReplacesProgress: true, centered: rect, categoryEditingAndMarkdown: true, narrow}, null, 2));
 } finally {
   await browser.close();
   await new Promise(resolve => server.close(resolve));
