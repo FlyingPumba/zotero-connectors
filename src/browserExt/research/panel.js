@@ -93,7 +93,8 @@ function render(next) {
 	$('error').hidden = !job?.error;
 	if (job?.error) $('error').textContent = job.error;
 	$('retry').hidden = job?.status !== 'error';
-	$('approval').hidden = job?.status !== 'awaiting_approval';
+	const reviewPending = ['ready', 'chatting'].includes(job?.status) && !!job?.proposedCollections?.length && !Array.isArray(job.approved);
+	$('approval').hidden = !reviewPending;
 	$('chat').hidden = !['ready', 'chatting'].includes(job?.status);
 	if (!job) return;
 	$('title').textContent = job.title;
@@ -103,7 +104,7 @@ function render(next) {
 	renderCategories();
 	$('session').hidden = !job.threadId;
 	$('sessionCommand').textContent = job.threadId ? `codex resume ${job.threadId}` : '';
-	if (job.status === 'awaiting_approval' && approvalID !== job.id) {
+	if (reviewPending && approvalID !== job.id) {
 		approvalID = job.id; $('proposals').replaceChildren();
 		job.proposedCollections.forEach((proposal, index) => {
 			const label = document.createElement('label'), checkbox = document.createElement('input'), reason = document.createElement('small');
