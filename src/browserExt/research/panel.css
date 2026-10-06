@@ -6,6 +6,8 @@ main { padding: 0 24px; } body:not(.results) main { display: flow-root; } sectio
 p { margin: 12px 0; } button, textarea, input { font: inherit; } button { cursor: pointer; border: 1px solid #235b4c; border-radius: 8px; padding: 10px 14px; background: #235b4c; color: white; text-align: center; } button:hover { filter: brightness(.94); } button:disabled { cursor: default; opacity: .5; }
 #actions button { display: block; width: 100%; margin-top: 9px; } #actions button { padding-top: 12px; padding-bottom: 12px; margin-top: 12px; }.secondary { color: #235b4c; background: transparent; border-color: #c0d2ca; } .icon { border: 0; background: transparent; color: #52665f; font-size: 26px; padding: 0 7px; }
 .approval-actions { display: flex; gap: 10px; margin-top: 12px; } .approval-actions button { flex: 1; min-width: 0; }
+#paperChoices button { display: block; width: 100%; margin: 10px 0; text-align: left; overflow-wrap: anywhere; }
+#paperChoices small { display: block; font-size: 11px; margin-top: 5px; }
 .hint { color: #67716e; font-size: 12px; } #status { color: #396c5e; font-size: 13px; } #error { padding: 12px; color: #993a2b; background: #fff0e9; border-radius: 8px; overflow-wrap: anywhere; }
 #summary { font-size: 15px; line-height: 1.65; white-space: pre-wrap; } #proposals label { display: block; border: 1px solid #dbe4df; padding: 12px; margin: 10px 0; border-radius: 8px; } #proposals small { display: block; margin: 4px 0 0 24px; color: #67716e; }
 textarea { width: 100%; resize: vertical; padding: 10px; border: 1px solid #c0d2ca; border-radius: 8px; background: white; } #chatForm label { display: block; margin: 12px 0 5px; font-size: 12px; } #send { margin-top: 8px; float: right; } #chatForm::after { content: ""; display: table; clear: both; }

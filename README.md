@@ -56,6 +56,8 @@ in the browser being developed for.
 
 Run `npm run test:research` to build the Chrome extension and test its toolbar and Research panel in temporary Chrome profiles. Google Chrome must already be installed. The tests use Chrome's actual toolbar action, including a tab opened before the extension is installed, repeated clicks, and panel reopening. They also check summary layout, category editing, Markdown chat, and ordinary saving. The Zotero backend is stubbed, so these tests do not save library items or invoke Codex.
 
+On an individual Twitter/X post, either Research Add button captures the author's main thread, finds its arXiv or PDF link, and imports the paper through the usual Research translation flow. An explicitly labelled paper card is preferred to related-work links; ambiguous paper links are shown for selection before saving. The original Twitter tab stays open. The companion Zotero Research plugin saves a **Twitter thread** child note with the posts, links, and embedded pictures; replies from other people are excluded. Other links are not downloaded. The Twitter regression test covers both Add modes, link selection, lazy loading, and the unchanged usual-save action.
+
 ## Requirements for packaging extensions from the command line
 
 * Copy `config.sh-sample` to `config.sh` and modify as necessary
