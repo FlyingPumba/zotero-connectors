@@ -163,6 +163,7 @@ try {
   await panel.click('#categoryPicker > summary');
   const markdownText = '**Key finding**\n\n- A grounded result\n- A limitation\n\n| Metric | Value |\n| --- | --- |\n| Recall | 0.8 |\n\n```python\nprint("hello")\n```\n\n[Paper](https://example.org/paper) <img src=x onerror="window.pwned=1"> <script>window.pwned=1</script> [bad](javascript:alert(1))';
   await panel.evaluate(text => { render({...job, messages: [{role: 'user', text: '**Keep this literal**'}, {role: 'assistant', text}]}); }, markdownText);
+  assert.deepEqual(await panel.$$eval('.message-role', nodes => nodes.map(n => n.textContent)), ['User', 'Assistant']);
   assert.equal(await panel.$$eval('.assistant strong', n => n.length), 2);
   assert.equal(await panel.$$eval('.assistant li', n => n.length), 2);
   assert.equal(await panel.$$eval('.assistant table', n => n.length), 1);
