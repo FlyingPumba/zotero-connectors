@@ -81,6 +81,7 @@ var injectInclude = [
 	'zoteroFrame.js',
 	'messaging_inject.js',
 	'inject/progressWindow_inject.js',
+	'inject/researchTwitter.js',
 	'inject/research.js',
 	'inject/modalPrompt_inject.js',
 	'messagingGeneric.js',

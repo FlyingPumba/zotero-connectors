@@ -4,6 +4,7 @@ if (Zotero.isManifestV3 && window.top === window) {
 	browser.runtime.onMessage.addListener(message => {
 		if (!message?.research || message.research === 'panel') return;
 		return (async () => {
+			if (message.research === 'twitter') return Zotero.ResearchTwitter.capture();
 			if (message.research === 'hide') { researchFrame?.remove(); researchFrame = null; return {ok: true}; }
 			if (message.research === 'resize') {
 				if (researchFrame && Number.isFinite(message.height) && message.height > 0) {
@@ -33,6 +34,7 @@ if (Zotero.isManifestV3 && window.top === window) {
 			if (/\.pdf(?:$|[?#])/i.test(location.href) || document.contentType === 'application/pdf') source.pdfURLs.push(location.href);
 			if (!message.metadata) return {source};
 			let item;
+			if (message.detect) await Zotero.PageSaving.onPageLoad();
 			const translators = Zotero.PageSaving.translators;
 			if (translators?.length && translators[0].itemType !== 'multiple') {
 				const translate = await Zotero.PageSaving._initTranslate(translators[0].itemType);

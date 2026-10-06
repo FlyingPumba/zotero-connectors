@@ -1,6 +1,9 @@
 /* global browser, marked, DOMPurify */
 const $ = id => document.getElementById(id);
 let job, busy = false, timer, requestID = crypto.randomUUID(), approvalID, messageSnapshot, actionStartedAt, activeAction, categorySnapshot, categoryBusy = false;
+browser.runtime.onMessage.addListener(message => {
+	if (message?.research === 'preparing' && busy && activeAction === 'start') $('status').textContent = message.stage;
+});
 async function call(action, data = {}) {
 	const result = await browser.runtime.sendMessage({research: 'panel', action, data});
 	if (!result || result.error) throw new Error(result?.error || 'The Connector could not respond. Reload this page and try again.');
@@ -114,7 +117,8 @@ function render(next) {
 	updateProgress();
 	$('error').hidden = !(job?.error || job?.reconnectError);
 	if (job?.error || job?.reconnectError) $('error').textContent = job.error || job.reconnectError;
-	$('notice').hidden = !job?.notice; $('notice').textContent = job?.notice || '';
+	$('notice').textContent = [job?.notice, job?.twitterWarning].filter(Boolean).join(' ');
+	$('notice').hidden = !$('notice').textContent;
 	$('retry').hidden = job?.status !== 'error';
 	const reviewPending = ['ready', 'chatting', 'summarizing'].includes(job?.status) && !!job?.proposedCollections?.length && !Array.isArray(job.approved);
 	$('approval').hidden = !reviewPending;
@@ -168,7 +172,20 @@ async function act(action, data) {
 	for (const id of ['entry', 'pdf', 'approve', 'skip', 'retry', 'send', 'produceSummary']) $(id).disabled = true;
 	try {
 		$('status').textContent = action === 'start' ? 'Reading metadata and adding entry…' : 'Working…';
-		render(await call(action, data));
+		const result = await call(action, data);
+		if (result.paperChoices) {
+			$('actions').hidden = true; $('paperChoice').hidden = false; $('paperChoices').replaceChildren();
+			for (const choice of result.paperChoices) {
+				const button = document.createElement('button'), url = document.createElement('small');
+				button.className = 'secondary'; button.textContent = choice.label;
+				url.textContent = choice.url; button.append(url);
+				button.onclick = () => act('start', {...data, paperURL: choice.url});
+				$('paperChoices').append(button);
+			}
+			return;
+		}
+		$('paperChoice').hidden = true;
+		render(result);
 		if (action === 'chat') $('question').value = '';
 		await refresh();
 	} catch (e) { error(e); }
