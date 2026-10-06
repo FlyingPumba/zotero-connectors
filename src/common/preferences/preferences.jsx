@@ -136,6 +136,7 @@ var Zotero_Preferences = {
 
 		this.pane[paneName].classList.toggle('selected', true);
 		this.content[paneName].classList.toggle('selected', true);
+		if (paneName === 'research') this.Research.init();
 	},
 	
 	/**
@@ -158,6 +159,115 @@ var Zotero_Preferences = {
 			toggleDisabled(document.getElementById('advanced-button-clear-output'), !count);
 			toggleDisabled(document.getElementById('advanced-button-submit-output'), !count);
 		});
+	}
+};
+
+Zotero_Preferences.Research = {
+	init: function() {
+		if (this.initialized) return;
+		this.initialized = true;
+		this.model = document.getElementById('research-model');
+		this.effort = document.getElementById('research-effort');
+		this.saveButton = document.getElementById('research-save');
+		this.retryButton = document.getElementById('research-retry');
+		this.status = document.getElementById('research-status');
+		this.model.onchange = () => { this.renderEfforts(this.effort.value); this.changed(); };
+		this.effort.onchange = () => this.changed();
+		this.saveButton.onclick = () => this.save();
+		this.retryButton.onclick = () => this.load();
+		this.load();
+	},
+
+	call: async function(data) {
+		await Zotero.initDeferred.promise;
+		await Zotero_Preferences.permissionsPromptDeferred.promise;
+		let result;
+		try { result = await Zotero.Connector.callMethod({method: 'research/settings'}, data); }
+		catch (error) {
+			if (!error.status || error.status === 404) {
+				throw new Error('Open Zotero with the Zotero Research plugin installed, then try again.');
+			}
+			throw error;
+		}
+		if (result.error) throw new Error(result.error);
+		return result;
+	},
+
+	setStatus: function(message, error = false) {
+		this.status.textContent = message;
+		this.status.classList.toggle('error', error);
+	},
+
+	setBusy: function(busy) {
+		this.busy = busy;
+		toggleDisabled(this.model, busy || !this.saved);
+		toggleDisabled(this.effort, busy || !this.saved);
+		toggleDisabled(this.retryButton, busy);
+		this.updateSave();
+	},
+
+	load: async function() {
+		this.setBusy(true);
+		this.retryButton.hidden = true;
+		this.setStatus('Loading models…');
+		try { this.render(await this.call({})); this.setStatus(''); }
+		catch (error) { this.setStatus(error.message, true); this.retryButton.hidden = false; }
+		finally { this.setBusy(false); }
+	},
+
+	render: function(settings) {
+		this.saved = {model: settings.model, effort: settings.effort};
+		this.models = settings.models;
+		this.model.replaceChildren();
+		for (const model of this.models) this.model.add(new Option(model.displayName || model.model, model.model));
+		// Opening settings must preserve a model configured outside the picker.
+		if (!this.models.some(model => model.model === settings.model)) {
+			this.model.add(new Option(settings.model + ' (current setting)', settings.model));
+		}
+		this.model.value = settings.model;
+		this.renderEfforts(settings.effort);
+	},
+
+	renderEfforts: function(preferred) {
+		const model = this.models.find(model => model.model === this.model.value);
+		const labels = {none: 'None', minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High',
+			xhigh: 'Extra high (xhigh)', max: 'Maximum', ultra: 'Ultra'};
+		this.effort.replaceChildren();
+		for (const option of model?.supportedReasoningEfforts || []) {
+			this.effort.add(new Option(labels[option.reasoningEffort] || option.reasoningEffort, option.reasoningEffort));
+		}
+		if (this.model.value === this.saved.model && ![...this.effort.options].some(o => o.value === this.saved.effort)) {
+			this.effort.add(new Option(this.saved.effort + ' (current setting)', this.saved.effort));
+		}
+		if (![...this.effort.options].some(o => o.value === preferred)) {
+			this.effort.add(new Option('Choose reasoning effort', ''), 0);
+			preferred = '';
+		}
+		this.effort.value = preferred;
+		document.getElementById('research-model-description').textContent = model?.description || '';
+		this.updateSave();
+	},
+
+	updateSave: function() {
+		const changed = this.saved && (this.model.value !== this.saved.model || this.effort.value !== this.saved.effort);
+		toggleDisabled(this.saveButton, this.busy || !changed || !this.model.value || !this.effort.value);
+		const model = this.models?.find(model => model.model === this.model.value);
+		document.getElementById('research-effort-description').textContent =
+			model?.supportedReasoningEfforts.find(option => option.reasoningEffort === this.effort.value)?.description || '';
+	},
+
+	changed: function() {
+		this.setStatus('');
+		this.updateSave();
+	},
+
+	save: async function() {
+		const selection = {model: this.model.value, effort: this.effort.value};
+		this.setBusy(true);
+		this.setStatus('Saving…');
+		try { this.render(await this.call(selection)); this.setStatus('Saved. Applies to your next summary or discussion reply.'); }
+		catch (error) { this.setStatus(error.message, true); }
+		finally { this.setBusy(false); }
 	}
 };
 
