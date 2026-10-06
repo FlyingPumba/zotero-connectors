@@ -129,6 +129,11 @@ try {
   await panel.evaluate(() => refresh());
   await panel.waitForFunction(() => innerHeight === Math.min(760, Math.ceil(document.body.getBoundingClientRect().height)));
 
+  assert.deepEqual(await panel.$$eval('#categories, #approval, #paper, #chat', nodes => nodes.map(n => n.id)),
+    ['categories', 'approval', 'paper', 'chat'], 'Category suggestions belong above the summary and discussion');
+  assert.equal(await panel.$eval('#approval', n => n.hidden), false);
+  await page.screenshot({path: output + '/zotero-category-proposals.png'});
+
   await panel.click('#skip');
   await panel.waitForFunction(() => !document.getElementById('chat').hidden);
   await panel.waitForFunction(() => innerWidth === 760 && innerHeight === Math.min(760, Math.ceil(document.body.getBoundingClientRect().height)));
