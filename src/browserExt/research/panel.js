@@ -117,7 +117,7 @@ function render(next) {
 		messageSnapshot = snapshot; $('messages').replaceChildren();
 		for (const message of job.messages || []) {
 			const block = document.createElement('div'), name = document.createElement('strong');
-			block.className = 'message ' + message.role; name.className = 'message-role'; name.textContent = message.role === 'user' ? 'YOU' : 'PAPER DISCUSSION';
+			block.className = 'message ' + message.role; name.className = 'message-role'; name.textContent = message.role === 'user' ? 'User' : 'Assistant';
 			const content = document.createElement('div');
 			if (message.role === 'assistant') { content.className = 'markdown'; markdown(content, message.text); }
 			else content.textContent = message.text;
