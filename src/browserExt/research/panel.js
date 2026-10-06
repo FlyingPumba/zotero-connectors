@@ -79,15 +79,16 @@ async function setCategory(key, selected) {
 	finally { categoryBusy = false; renderCategories(); }
 }
 function updateProgress() {
-	const active = busy || ['ingesting', 'chatting'].includes(job?.status);
+	const active = busy || ['ingesting', 'chatting', 'summarizing'].includes(job?.status);
 	const chatting = activeAction === 'chat' || job?.status === 'chatting';
-	const progress = $('progress'), anchor = chatting ? $('partial') : $('error');
+	const summarizing = activeAction === 'summarize' || job?.status === 'summarizing';
+	const progress = $('progress'), anchor = chatting ? $('partial') : summarizing ? $('produceSummary') : $('error');
 	if (progress.nextElementSibling !== anchor) anchor.before(progress);
 	progress.hidden = !active || (chatting && !!job?.partial);
 	updateActivity();
 }
 function updateActivity() {
-	const active = busy || ['ingesting', 'chatting'].includes(job?.status);
+	const active = busy || ['ingesting', 'chatting', 'summarizing'].includes(job?.status);
 	$('activity').hidden = !active;
 	const started = busy ? actionStartedAt : Date.parse(job?.operationStartedAt || (job?.status === 'ingesting' ? job.createdAt : ''));
 	$('elapsed').hidden = !active || !Number.isFinite(started);
@@ -101,10 +102,13 @@ function render(next) {
 	job = next;
 	$('actions').hidden = !!job;
 	$('footer').hidden = !job;
-	const expanded = !!job && (['ready', 'chatting'].includes(job.status) || !!job.summary);
+	const expanded = !!job && (['ready', 'chatting', 'summarizing'].includes(job.status) || !!job.summary);
 	document.body.classList.toggle('results', expanded);
 	$('title').hidden = !expanded;
-	$('paper').hidden = !job?.summary;
+	$('paper').hidden = !expanded;
+	$('summary').hidden = !job?.summary;
+	$('produceSummary').hidden = !!job?.summary;
+	$('produceSummary').disabled = busy || job?.status !== 'ready';
 	$('categories').hidden = !expanded;
 	$('status').textContent = job ? (/^Reading paper and/.test(job.stage) ? `Codex: ${job.stage}` : job.stage) : '';
 	updateProgress();
@@ -112,9 +116,9 @@ function render(next) {
 	if (job?.error || job?.reconnectError) $('error').textContent = job.error || job.reconnectError;
 	$('notice').hidden = !job?.notice; $('notice').textContent = job?.notice || '';
 	$('retry').hidden = job?.status !== 'error';
-	const reviewPending = ['ready', 'chatting'].includes(job?.status) && !!job?.proposedCollections?.length && !Array.isArray(job.approved);
+	const reviewPending = ['ready', 'chatting', 'summarizing'].includes(job?.status) && !!job?.proposedCollections?.length && !Array.isArray(job.approved);
 	$('approval').hidden = !reviewPending;
-	$('chat').hidden = !['ready', 'chatting'].includes(job?.status);
+	$('chat').hidden = !['ready', 'chatting', 'summarizing'].includes(job?.status);
 	if (!job) return;
 	$('title').textContent = job.title;
 	$('summary').textContent = job.summary || '';
@@ -147,21 +151,21 @@ function render(next) {
 	}
 	markdown($('partial'), job.partial);
 	$('partial').hidden = !job.partial;
-	$('send').disabled = busy || job.status === 'chatting';
+	$('send').disabled = busy || job.status !== 'ready';
 	$('question').disabled = job.status === 'chatting';
 }
 async function refresh(reconnect = false) {
 	try { const result = await call('status', {id: job?.id, reconnect}); render(result.job); }
 	catch (e) { render(job); error(e); }
 	clearTimeout(timer);
-	if (job && ['ingesting', 'chatting'].includes(job.status)) timer = setTimeout(refresh, 1000);
+	if (job && ['ingesting', 'chatting', 'summarizing'].includes(job.status)) timer = setTimeout(refresh, 1000);
 }
 async function act(action, data) {
 	if (busy) return;
 	if (action === 'start') $('ordinary').hidden = true;
 	busy = true; activeAction = action; actionStartedAt = Date.now(); $('error').hidden = true;
 	updateProgress();
-	for (const id of ['entry', 'pdf', 'approve', 'skip', 'retry', 'send']) $(id).disabled = true;
+	for (const id of ['entry', 'pdf', 'approve', 'skip', 'retry', 'send', 'produceSummary']) $(id).disabled = true;
 	try {
 		$('status').textContent = action === 'start' ? 'Reading metadata and adding entry…' : 'Working…';
 		render(await call(action, data));
@@ -171,7 +175,8 @@ async function act(action, data) {
 	finally {
 		busy = false; activeAction = null; updateProgress();
 		for (const id of ['entry', 'pdf', 'approve', 'skip', 'retry']) $(id).disabled = false;
-		$('send').disabled = job?.status === 'chatting';
+		$('send').disabled = !!job && job.status !== 'ready';
+		$('produceSummary').disabled = job?.status !== 'ready';
 	}
 }
 $('entry').onclick = () => act('start', {mode: 'entry', requestID});
@@ -180,6 +185,7 @@ $('close').onclick = () => call('close').catch(error);
 $('ordinary').onclick = () => call('ordinary').then(() => call('close')).catch(error);
 $('approve').onclick = () => act('approve', {id: job.id, selected: [...$('proposals').querySelectorAll('input:checked')].map(input => Number(input.value))});
 $('skip').onclick = () => act('approve', {id: job.id, selected: []});
+$('produceSummary').onclick = () => act('summarize', {id: job.id});
 $('retry').onclick = () => act('retry', {id: job.id});
 $('chatForm').onsubmit = event => { event.preventDefault(); const question = $('question').value.trim(); if (question) act('chat', {id: job.id, question}); };
 $('categorySearch').oninput = filterCategories;
