@@ -205,6 +205,11 @@ $('skip').onclick = () => act('approve', {id: job.id, selected: []});
 $('produceSummary').onclick = () => act('summarize', {id: job.id});
 $('retry').onclick = () => act('retry', {id: job.id});
 $('chatForm').onsubmit = event => { event.preventDefault(); const question = $('question').value.trim(); if (question) act('chat', {id: job.id, question}); };
+$('question').onkeydown = event => {
+	if (event.key !== 'Enter' || !event.metaKey || event.isComposing) return;
+	event.preventDefault();
+	$('send').click();
+};
 $('categorySearch').oninput = filterCategories;
 $('categoryPicker').ontoggle = () => { if ($('categoryPicker').open) $('categorySearch').focus(); };
 document.addEventListener('pointerdown', event => {
