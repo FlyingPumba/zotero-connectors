@@ -37,6 +37,12 @@ try {
           createdAt: new Date(Date.now() - 125000).toISOString(),
           operationStartedAt: new Date(Date.now() - 65000).toISOString()};
       }
+      if (method === 'summarize') {
+        if (data.source) throw new Error('Summary in an existing session must not fetch the page again');
+        currentJob.status = 'summarizing'; currentJob.error = null;
+        currentJob.stage = 'Reading paper and writing summary';
+        currentJob.operationStartedAt = new Date().toISOString();
+      }
       if (method === 'chat') {
         if (data.source) throw new Error('Resumed chat must not extract the page again');
         Zotero.Research.chatVerified = true;
@@ -274,6 +280,31 @@ try {
   await worker.evaluate(job => Zotero.Research.setTestJob(job), failedJob);
   await panel.waitForFunction(() => job.status === 'ready' && !document.getElementById('error').hidden);
   assert.equal(await panel.$eval('#progress', n => n.hidden), true);
+  const noSummary = {...finishedJob, summary: '', error: null};
+  await worker.evaluate(job => Zotero.Research.setTestJob(job), noSummary);
+  await panel.evaluate(() => refresh());
+  assert.equal(await panel.$eval('#paper', n => n.hidden), false);
+  assert.equal(await panel.$eval('#produceSummary', n => n.hidden || n.disabled), false);
+  await panel.$eval('#produceSummary', n => n.scrollIntoView({block: 'center'}));
+  await page.screenshot({path: output + '/zotero-produce-summary.png'});
+  await panel.click('#produceSummary');
+  await panel.waitForFunction(() => !busy && job.status === 'summarizing');
+  assert.equal(await panel.$eval('#progress', n => !n.hidden && n.parentElement.id === 'paper'), true);
+  assert.equal(await panel.$eval('#chat', n => n.hidden), false);
+  assert.equal(await panel.$eval('#produceSummary', n => n.disabled), true);
+  assert.equal(await panel.$eval('#send', n => n.disabled), true);
+  await worker.evaluate(job => Zotero.Research.setTestJob({...job, error: 'Summary failed'}), noSummary);
+  await panel.waitForFunction(() => job.status === 'ready');
+  assert.equal(await panel.$eval('#produceSummary', n => n.disabled), false, 'Summary failures can be retried');
+  await panel.click('#produceSummary');
+  await panel.waitForFunction(() => !busy && job.status === 'summarizing');
+  await worker.evaluate(job => Zotero.Research.setTestJob({...job, summary: 'The newly saved summary.'}), noSummary);
+  await panel.waitForFunction(() => job.status === 'ready');
+  assert.equal(await panel.$eval('#summary', n => n.textContent), 'The newly saved summary.');
+  assert.equal(await panel.$eval('#produceSummary', n => n.hidden), true);
+  assert.equal(await panel.$eval('#progress', n => n.hidden), true);
+  assert.deepEqual(await panel.evaluate(() => job.messages), noSummary.messages);
+  assert.deepEqual(await panel.evaluate(() => job.existingCollections), noSummary.existingCollections);
   const closed = new Promise(resolve => page.on('framedetached', frame => { if (frame === panel) resolve(); }));
   assert.equal(await panel.$eval('#ordinary', n => n.getClientRects().length), 0);
   await panel.click('#close');
