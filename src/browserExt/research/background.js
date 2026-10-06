@@ -43,11 +43,11 @@ browser.runtime.onMessage.addListener((message, sender) => {
 		if (message.action === 'command') return Zotero.Research.call('command', {id: data.id});
 		if (message.action === 'approve') return Zotero.Research.call('approve', {id: data.id, selected: data.selected});
 		if (message.action === 'category') return Zotero.Research.call('category', data);
-		if (message.action === 'chat') {
+		if (['chat', 'summarize'].includes(message.action)) {
 			const {job} = await Zotero.Research.call('status', {id: data.id, reconnect: true});
-			if (job?.threadId && !job.sessionMissing) return Zotero.Research.call('chat', data);
+			if (job?.threadId && !job.sessionMissing) return Zotero.Research.call(message.action, data);
 		}
-		if (['start', 'chat', 'retry'].includes(message.action)) {
+		if (['start', 'chat', 'retry', 'summarize'].includes(message.action)) {
 			await Zotero.Research.call('status', {url: tab.url});
 			const extracted = await browser.tabs.sendMessage(tab.id,
 				{research: 'extract', metadata: message.action === 'start'}, {frameId: 0});
