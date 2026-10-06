@@ -39,7 +39,10 @@ try {
       if (method === 'chat') {
         if (data.source) throw new Error('Resumed chat must not extract the page again');
         Zotero.Research.chatVerified = true;
-        currentJob.messages.push({role: 'user', text: data.question}, {role: 'assistant', text: '**Same session.**'});
+        currentJob.status = 'chatting'; currentJob.partial = '';
+        currentJob.stage = 'Answering in the paper’s Codex session';
+        currentJob.operationStartedAt = new Date().toISOString();
+        currentJob.messages.push({role: 'user', text: data.question});
       }
       if (method === 'category') {
         if (data.key === 'fail') throw new Error('Category save failed');
@@ -103,6 +106,7 @@ try {
   const progress = await panel.evaluate(() => ({height: innerHeight, elapsed: document.getElementById('elapsed').textContent,
     stage: document.getElementById('status').textContent, active: !document.getElementById('activity').hidden}));
   assert.ok(progress.active && progress.stage.startsWith('Codex:'));
+  assert.equal(await panel.$eval('#progress', n => n.nextElementSibling.id), 'error', 'Ingestion progress stays above the paper');
   assert.equal(await panel.$eval('#ordinary', n => n.getClientRects().length), 0);
   assert.ok(progress.elapsed.includes('gpt-6-astra'));
   assert.ok(progress.height < 240, JSON.stringify(progress));
@@ -111,12 +115,13 @@ try {
   const job = {id: 'ui-test', status: 'awaiting_approval', stage: 'Review proposed categories', title: 'Paper preview',
     summary: 'A saved result. '.repeat(150), messages: [], existingCollections: [{key: 'a', path: 'Machine learning / Attention'}],
     availableCollections: [{key: 'a', path: 'Machine learning / Attention'}, {key: 'b', path: 'Safety / Oversight'}, {key: 'fail', path: 'Broken category'}],
-    threadId: '019-test-persistent-session',
+    threadId: '019-test-persistent-session', model: 'gpt-6-astra', sourceInfo: {kind: 'PDF text'},
     proposedCollections: [{name: 'A proposed category', reason: 'Relevant topic'}], coverage: 'full_text'};
   await worker.evaluate(job => Zotero.Research.setTestJob(job), job);
   await panel.evaluate(() => refresh());
   await panel.waitForFunction(() => innerHeight === 760);
   assert.equal(await panel.$eval('#chat', n => n.hidden), true);
+  assert.equal(await panel.$eval('#coverage', n => n.hidden), true);
   assert.equal(await panel.$eval('#ordinary', n => n.getClientRects().length), 0);
   assert.equal(await panel.$eval('#activity', n => n.hidden), true);
   job.summary = 'A saved result.';
@@ -170,11 +175,61 @@ try {
   await panel.waitForFunction(() => innerWidth <= 388);
   const narrow = await (await panel.frameElement()).boundingBox();
   assert.ok(narrow.x >= 15 && narrow.y >= 15 && narrow.height <= 668, JSON.stringify(narrow));
+  await page.setViewport({width: 1100, height: 900});
+  await panel.waitForFunction(() => innerWidth === 760);
   await panel.type('#question', 'Continue the discussion.');
   await panel.focus('#send');
   await page.keyboard.press('Enter');
-  await panel.waitForFunction(() => !busy && job.messages.some(m => m.text === '**Same session.**'));
+  await panel.waitForFunction(() => !busy && job.status === 'chatting');
+  const chatProgress = await panel.evaluate(() => {
+    const progress = $('progress'), message = $('messages').lastElementChild;
+    return {visible: progress.getClientRects().length > 0, parent: progress.parentElement.id,
+      previous: progress.previousElementSibling.id, next: progress.nextElementSibling.id,
+      stage: $('status').textContent, elapsed: $('elapsed').textContent,
+      belowMessage: progress.getBoundingClientRect().top >= message.getBoundingClientRect().bottom,
+      question: message.textContent, fontSize: getComputedStyle(message.lastElementChild).fontSize};
+  });
+  assert.equal(chatProgress.visible, true);
+  assert.equal(chatProgress.parent, 'chat');
+  assert.equal(chatProgress.previous, 'messages');
+  assert.equal(chatProgress.next, 'partial');
+  assert.equal(chatProgress.belowMessage, true);
+  assert.ok(chatProgress.question.includes('Continue the discussion.'));
+  assert.equal(chatProgress.fontSize, '15px');
+  assert.equal(chatProgress.stage, 'Answering in the paper’s Codex session');
+  assert.ok(chatProgress.elapsed.includes('gpt-6-astra'));
+  await panel.$eval('#progress', n => n.scrollIntoView({block: 'nearest'}));
+  await page.screenshot({path: output + '/zotero-chat-waiting.png'});
+
+  const chattingJob = await panel.evaluate(() => job);
+  await worker.evaluate(job => Zotero.Research.setTestJob({...job, partial: '**Same session.**', stage: 'Answering'}), chattingJob);
+  await panel.waitForFunction(() => !document.getElementById('partial').hidden);
+  assert.equal(await panel.$eval('#progress', n => n.hidden), true, 'The first streamed text replaces chat progress');
+  assert.equal(await panel.$eval('#partial strong', n => n.textContent), 'Same session.');
+  assert.equal(await panel.$eval('#partial', n => getComputedStyle(n).fontSize), '15px');
+  await panel.evaluate(() => updateActivity());
+  assert.equal(await panel.$eval('#progress', n => n.hidden), true, 'Elapsed-time updates must not bring progress back while streaming');
+
+  const finishedJob = {...chattingJob, status: 'ready', stage: 'Ready to discuss', partial: '',
+    messages: [...chattingJob.messages, {role: 'assistant', text: '**Same session.**'}]};
+  await worker.evaluate(job => Zotero.Research.setTestJob(job), finishedJob);
+  await panel.waitForFunction(() => job.status === 'ready' && !document.getElementById('send').disabled);
+  assert.equal(await panel.$eval('#progress', n => n.hidden), true);
+  assert.equal(await panel.$eval('.assistant > div', n => getComputedStyle(n).fontSize), '15px');
   assert.equal(await worker.evaluate(() => Zotero.Research.chatVerified), true);
+  await page.screenshot({path: output + '/zotero-chat-complete.png'});
+
+  // A follow-up starts a new waiting indicator; a failed answer clears it.
+  await panel.type('#question', 'And the main limitation?');
+  await panel.focus('#send');
+  await page.keyboard.press('Enter');
+  await panel.waitForFunction(() => !busy && job.status === 'chatting');
+  assert.equal(await panel.$eval('#progress', n => !n.hidden && n.previousElementSibling.id === 'messages'), true);
+  assert.ok(await panel.$eval('#messages', n => n.lastElementChild.textContent.includes('And the main limitation?')));
+  const failedJob = await panel.evaluate(() => ({...job, status: 'ready', stage: 'Ready to discuss', error: 'Answer failed'}));
+  await worker.evaluate(job => Zotero.Research.setTestJob(job), failedJob);
+  await panel.waitForFunction(() => job.status === 'ready' && !document.getElementById('error').hidden);
+  assert.equal(await panel.$eval('#progress', n => n.hidden), true);
   const closed = new Promise(resolve => page.on('framedetached', frame => { if (frame === panel) resolve(); }));
   assert.equal(await panel.$eval('#ordinary', n => n.getClientRects().length), 0);
   await panel.click('#close');
@@ -191,7 +246,7 @@ try {
   assert.equal(await panel.$eval('#ordinary', n => n.getClientRects().length), 0);
   assert.equal(await worker.evaluate(() => Zotero.Research.ordinarySaves), 1);
   console.log(JSON.stringify({ready, progress, longContentCapsAt760: true, shrinksAfterContentChange: true,
-    categoryGateAndOrdinarySavePreserved: true, centered: rect, categoryEditingAndMarkdown: true, narrow}, null, 2));
+    categoryGateAndOrdinarySavePreserved: true, chatProgress, streamingReplacesProgress: true, centered: rect, categoryEditingAndMarkdown: true, narrow}, null, 2));
 } finally {
   await browser.close();
   await new Promise(resolve => server.close(resolve));

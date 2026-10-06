@@ -1,6 +1,6 @@
 /* global browser, marked, DOMPurify */
 const $ = id => document.getElementById(id);
-let job, busy = false, timer, requestID = crypto.randomUUID(), approvalID, messageSnapshot, actionStartedAt, categorySnapshot, categoryBusy = false;
+let job, busy = false, timer, requestID = crypto.randomUUID(), approvalID, messageSnapshot, actionStartedAt, activeAction, categorySnapshot, categoryBusy = false;
 async function call(action, data = {}) {
 	const result = await browser.runtime.sendMessage({research: 'panel', action, data});
 	if (!result || result.error) throw new Error(result?.error || 'The Connector could not respond. Reload this page and try again.');
@@ -60,6 +60,14 @@ async function setCategory(key, selected) {
 	} catch (e) { $('categoryStatus').textContent = e.message; $('categoryStatus').classList.add('failed'); }
 	finally { categoryBusy = false; renderCategories(); }
 }
+function updateProgress() {
+	const active = busy || ['ingesting', 'chatting'].includes(job?.status);
+	const chatting = activeAction === 'chat' || job?.status === 'chatting';
+	const progress = $('progress'), anchor = chatting ? $('partial') : $('error');
+	if (progress.nextElementSibling !== anchor) anchor.before(progress);
+	progress.hidden = !active || (chatting && !!job?.partial);
+	updateActivity();
+}
 function updateActivity() {
 	const active = busy || ['ingesting', 'chatting'].includes(job?.status);
 	$('activity').hidden = !active;
@@ -81,8 +89,7 @@ function render(next) {
 	$('paper').hidden = !expanded;
 	$('categories').hidden = !expanded;
 	$('status').textContent = job ? (/^Reading paper and/.test(job.stage) ? `Codex: ${job.stage}` : job.stage) : '';
-	$('progress').hidden = !busy && !['ingesting', 'chatting'].includes(job?.status);
-	updateActivity();
+	updateProgress();
 	$('error').hidden = !job?.error;
 	if (job?.error) $('error').textContent = job.error;
 	$('retry').hidden = job?.status !== 'error';
@@ -91,7 +98,8 @@ function render(next) {
 	if (!job) return;
 	$('title').textContent = job.title;
 	$('summary').textContent = job.summary || '';
-	$('coverage').textContent = `${(job.coverage || '').replaceAll('_', ' ')}${job.sourceInfo ? ' · ' + job.sourceInfo.kind : ''}${job.sourceInfo?.warning ? ' · ' + job.sourceInfo.warning : ''}`;
+	$('coverage').textContent = job.sourceInfo?.warning || '';
+	$('coverage').hidden = !job.sourceInfo?.warning;
 	renderCategories();
 	$('session').hidden = !job.threadId;
 	$('sessionCommand').textContent = job.threadId ? `codex resume ${job.threadId}` : '';
@@ -130,8 +138,8 @@ async function refresh() {
 async function act(action, data) {
 	if (busy) return;
 	if (action === 'start') $('ordinary').hidden = true;
-	busy = true; actionStartedAt = Date.now(); $('error').hidden = true;
-	$('progress').hidden = false; updateActivity();
+	busy = true; activeAction = action; actionStartedAt = Date.now(); $('error').hidden = true;
+	updateProgress();
 	for (const id of ['entry', 'pdf', 'approve', 'skip', 'retry', 'send']) $(id).disabled = true;
 	try {
 		$('status').textContent = action === 'start' ? 'Reading metadata and adding entry…' : 'Working…';
@@ -140,8 +148,7 @@ async function act(action, data) {
 		await refresh();
 	} catch (e) { error(e); }
 	finally {
-		busy = false; updateActivity();
-		$('progress').hidden = !['ingesting', 'chatting'].includes(job?.status);
+		busy = false; activeAction = null; updateProgress();
 		for (const id of ['entry', 'pdf', 'approve', 'skip', 'retry']) $(id).disabled = false;
 		$('send').disabled = job?.status === 'chatting';
 	}
