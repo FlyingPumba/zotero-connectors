@@ -40,7 +40,7 @@ footer { padding: 0 24px 20px; } #ordinary { display: block; width: 100%; }
 #categoryOptions label { display: flex; align-items: center; gap: 10px; border-radius: 5px; padding: 8px; cursor: pointer; font-size: 13px; }
 #categoryOptions label:hover { background: #edf4ef; }
 #categoryOptions input, #proposals input { accent-color: #235b4c; }
-.message, #partial { font-size: 15px; }
+.message, #partial, #question, #send { font-size: 15px; }
 .message { white-space: normal; }
 .message.user > div { white-space: pre-wrap; }
 .markdown { line-height: 1.65; overflow-wrap: anywhere; }
