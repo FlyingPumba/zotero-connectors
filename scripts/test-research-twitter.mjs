@@ -59,6 +59,7 @@ try {
       if (String(url).startsWith('https://t.co/')) {
         Zotero.Research.testLinkRequests.push({url, method: options?.method, redirect: options?.redirect});
         if (url === 'https://t.co/unavailable') throw new Error('Redirect unavailable');
+        if (url === 'https://t.co/solearxiv') return {url: 'https://arxiv.org/abs/2605.02105', headers: new Headers({'Content-Type': 'text/html'})};
         if (Zotero.Research.testRedirectMode === 'http') return {url: paperURL, headers: new Headers({'Content-Type': 'application/pdf'})};
         // Actual t.co browser response: HEAD stays on t.co; GET returns a script
         // redirect. Parsing its JSON string must never execute the script.
@@ -170,6 +171,30 @@ try {
   assert.equal(await panel.$$eval('#paperChoices button', nodes => nodes.length), 2);
   await panel.locator('#paperChoices button:nth-child(2)').click(); await panel.waitForSelector('#paper:not([hidden])');
   assert.equal(await worker.evaluate(() => Zotero.Research.testStarts.at(-1).source.url), paperURL);
+
+  // No external arXiv download is needed to check the single-link exception.
+  await worker.evaluate(() => {
+    Zotero.Research.testExtractPaper = Zotero.Research.extractPaper;
+    Zotero.Research.extractPaper = async function(url, ...args) {
+      if (url === 'https://arxiv.org/abs/2605.02105') return {item: {title: 'Single arXiv paper'}, source: {url, pdfURLs: []}};
+      return this.testExtractPaper(url, ...args);
+    };
+  });
+  try {
+    for (const [mode, url] of [['entry', 'https://export.arxiv.org/pdf/2605.02105.pdf'], ['pdf', 'https://t.co/solearxiv']]) {
+      html = '<!doctype html><title>Twitter</title>' + post('101', `Paper: <a href="${url}">Read it</a>`);
+      ({panel} = await openPanel());
+      const count = await worker.evaluate(() => Zotero.Research.testStarts.length);
+      await panel.locator('#' + mode).click(); await panel.waitForSelector('#paper:not([hidden])');
+      assert.equal(await panel.$eval('#paperChoice', e => e.hidden), true);
+      assert.equal(await worker.evaluate(() => Zotero.Research.testStarts.length), count + 1);
+      const saved = await worker.evaluate(() => Zotero.Research.testStarts.at(-1));
+      assert.equal(saved.source.url, 'https://arxiv.org/abs/2605.02105'); assert.equal(saved.mode, mode);
+    }
+  } finally {
+    await worker.evaluate(() => { Zotero.Research.extractPaper = Zotero.Research.testExtractPaper; delete Zotero.Research.testExtractPaper; });
+  }
+  console.log('PASS: one arXiv paper URL skips the chooser in both Add modes, including expanded short links');
 
   const links = await worker.evaluate(() => Zotero.Research.paperLinks({posts: [{text: '', links: [
     {url: 'https://t.co/unavailable', label: 'Unavailable redirect'},
