@@ -1,6 +1,24 @@
 /* global Zotero, browser */
 if (Zotero.isManifestV3 && window.top === window) {
 	let researchFrame;
+	function pageText() {
+		if (!/(^|\.)lesswrong\.com$/.test(location.hostname) || !location.pathname.startsWith('/posts/')) {
+			return document.body?.innerText || '';
+		}
+		// LessWrong streams the article into a hidden React container. In an
+		// inactive tab it can stay hidden after load, so body.innerText misses it.
+		const post = document.querySelector('#postContent')?.cloneNode(true);
+		if (!post) throw new Error('Could not read the LessWrong post text. Open the full post and try again.');
+		for (const node of post.querySelectorAll('script, style, noscript')) node.remove();
+		for (const node of post.querySelectorAll('br')) node.replaceWith('\n');
+		for (const node of post.querySelectorAll('p, div, h1, h2, h3, h4, h5, h6, li, pre, blockquote, section, table, tr')) {
+			node.prepend('\n'); node.append('\n');
+		}
+		for (const node of post.querySelectorAll('th, td')) node.append('\t');
+		const text = post.textContent.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+		if (!text) throw new Error('Could not read the LessWrong post text. Open the full post and try again.');
+		return text;
+	}
 	browser.runtime.onMessage.addListener(message => {
 		if (!message?.research || message.research === 'panel') return;
 		return (async () => {
@@ -27,7 +45,7 @@ if (Zotero.isManifestV3 && window.top === window) {
 				await researchFrame.init(); return {ok: true};
 			}
 			if (message.research !== 'extract') return;
-			const source = {url: location.href, pageText: document.body?.innerText || '', pdfURLs: []};
+			const source = {url: location.href, pageText: pageText(), pdfURLs: []};
 			const citationPDFSource = document.querySelector('meta[name="citation_pdf_url"]')?.content;
 			if (citationPDFSource) source.pdfURLs.push(new URL(citationPDFSource, location.href).href);
 			if (/^(www\.)?arxiv\.org$/.test(location.hostname) && location.pathname.startsWith('/abs/')) source.pdfURLs.push('https://arxiv.org/pdf/' + location.pathname.slice(5));
