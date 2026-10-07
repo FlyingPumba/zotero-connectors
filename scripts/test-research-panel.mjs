@@ -202,8 +202,8 @@ try {
   await panel.click('#categoryPicker > summary');
   const markdownText = '**Key finding**\n\n- A grounded result\n- A limitation\n\n| Metric | Value |\n| --- | --- |\n| Recall | 0.8 |\n\n```python\nprint("hello")\n```\n\n[Paper](https://example.org/paper) <img src=x onerror="window.pwned=1"> <script>window.pwned=1</script> [bad](javascript:alert(1))';
   await panel.evaluate(text => { render({...job, messages: [{role: 'user', text: '**Keep this literal**'}, {role: 'assistant', text}]}); }, markdownText);
-  assert.deepEqual(await panel.$$eval('.message-role', nodes => nodes.map(n => n.textContent)), ['User', 'Assistant']);
-  assert.equal(await panel.$$eval('.assistant strong', n => n.length), 2);
+  assert.deepEqual(await panel.$$eval('#messages .message-role', nodes => nodes.map(n => n.textContent)), ['User', 'Assistant']);
+  assert.equal(await panel.$$eval('#messages .assistant strong', n => n.length), 2);
   assert.equal(await panel.$$eval('.assistant li', n => n.length), 2);
   assert.equal(await panel.$$eval('.assistant table', n => n.length), 1);
   assert.equal(await panel.$$eval('.assistant pre code', n => n.length), 1);
@@ -255,7 +255,7 @@ $$\begin{pmatrix}a & b \\ c & d\end{pmatrix}$$
   assert.ok(await panel.$eval('.assistant', n => n.textContent.includes('My edited interpretation.')), 'Never replace an edited Zotero note with the original answer');
 
   await panel.evaluate(() => render({...job, discussionHTML: null, messages: [], partial: String.raw`Let \(\frac{`}));
-  assert.equal(await panel.$eval('#partial', n => n.textContent.trimEnd()), String.raw`Let (\frac{`);
+  assert.equal(await panel.$eval('#partialContent', n => n.textContent.trimEnd()), String.raw`Let (\frac{`);
   await panel.evaluate(() => render({...job, partial: String.raw`Let \(\frac{x}{y}\)`}));
   assert.equal(await panel.$$eval('#partial .katex', nodes => nodes.length), 1, 'Math appears once a streamed formula is complete');
   await panel.evaluate(() => render({...job, partial: String.raw`\(\frac{x}\) and \(\unknowncommand{x}\) and \(\href{javascript:alert(1)}{click}\)`}));
@@ -323,13 +323,23 @@ $$\begin{pmatrix}a & b \\ c & d\end{pmatrix}$$
   assert.ok(chatProgress.elapsed.includes('gpt-6-astra'));
   await panel.$eval('#progress', n => n.scrollIntoView({block: 'nearest'}));
   await page.screenshot({path: output + '/zotero-chat-waiting.png'});
+  assert.equal(await panel.$eval('#partial', n => n.hidden), true, 'No empty Assistant box before the first response text');
 
   const chattingJob = await panel.evaluate(() => job);
   await worker.evaluate(job => Zotero.Research.setTestJob({...job, partial: '**Same session.**', stage: 'Answering'}), chattingJob);
   await panel.waitForFunction(() => !document.getElementById('partial').hidden);
   assert.equal(await panel.$eval('#progress', n => n.hidden), true, 'The first streamed text replaces chat progress');
-  assert.equal(await panel.$eval('#partial strong', n => n.textContent), 'Same session.');
+  assert.equal(await panel.$eval('#partialContent strong', n => n.textContent), 'Same session.');
+  assert.equal(await panel.$eval('#partial .message-role', n => n.textContent), 'Assistant');
+  const messageAppearance = n => {
+    const style = getComputedStyle(n);
+    return {background: style.backgroundColor, padding: style.padding, borderRadius: style.borderRadius};
+  };
+  const streamingAppearance = await panel.$eval('#partial', messageAppearance);
+  assert.notEqual(streamingAppearance.background, 'rgba(0, 0, 0, 0)', 'The first streamed text already has a colored box');
   assert.equal(await panel.$eval('#partial', n => getComputedStyle(n).fontSize), '15px');
+  await panel.$eval('#partial', n => n.scrollIntoView({block: 'nearest'}));
+  await page.screenshot({path: output + '/zotero-chat-streaming.png'});
   await panel.evaluate(() => updateActivity());
   assert.equal(await panel.$eval('#progress', n => n.hidden), true, 'Elapsed-time updates must not bring progress back while streaming');
 
@@ -338,6 +348,8 @@ $$\begin{pmatrix}a & b \\ c & d\end{pmatrix}$$
   await worker.evaluate(job => Zotero.Research.setTestJob(job), finishedJob);
   await panel.waitForFunction(() => job.status === 'ready' && !document.getElementById('send').disabled);
   assert.equal(await panel.$eval('#progress', n => n.hidden), true);
+  assert.equal(await panel.$eval('#partial', n => n.hidden), true, 'Completion hides the streaming box');
+  assert.deepEqual(await panel.$eval('#messages .assistant:last-child', messageAppearance), streamingAppearance, 'Streaming and finished answers use the same box styling');
   assert.equal(await panel.$eval('.assistant > div', n => getComputedStyle(n).fontSize), '15px');
   assert.equal(await worker.evaluate(() => Zotero.Research.chatVerified), true);
   await page.screenshot({path: output + '/zotero-chat-complete.png'});
