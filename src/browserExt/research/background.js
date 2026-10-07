@@ -135,7 +135,7 @@ browser.runtime.onMessage.addListener((message, sender) => {
 		const tab = await browser.tabs.get(sender.tab.id);
 		const data = message.data || {};
 		if (message.action === 'paperChoicePage') return Zotero.Research.paperChoicePage(data);
-		if (message.action === 'resize') return browser.tabs.sendMessage(tab.id, {research: 'resize', height: data.height, expanded: data.expanded}, {frameId: 0});
+		if (message.action === 'resize') return browser.tabs.sendMessage(tab.id, {research: 'resize', height: data.height, expanded: data.expanded, mode: data.mode}, {frameId: 0});
 		if (message.action === 'close') return browser.tabs.sendMessage(tab.id, {research: 'hide'}, {frameId: 0});
 		if (message.action === 'ordinary') {
 			const info = Zotero.Connector_Browser.getTabInfo(tab.id);
