@@ -33,7 +33,9 @@ footer { padding: 0 24px 20px; } #ordinary { display: block; width: 100%; }
 #categoryChips { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 10px; }
 .category-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 6px 4px 11px; border: 1px solid #d5e5dc; background: #edf4ef; border-radius: 20px; color: #235b4c; font-size: 12px; overflow-wrap: anywhere; }
 .chip-remove { border: 0; background: transparent; color: #4f7268; padding: 0 4px; font-size: 18px; line-height: 1.2; border-radius: 50%; }
-#categoryPicker { position: relative; }
+.category-actions { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+#newCategory { padding: 5px 10px; border-radius: 7px; font-size: 12px; }
+#newCategory[aria-expanded="true"] { background: #edf4ef; }
 #categoryPicker > summary { list-style: none; display: inline-flex; gap: 20px; align-items: center; cursor: pointer; color: #235b4c; border: 1px solid #c0d2ca; border-radius: 7px; padding: 5px 10px; font-size: 12px; }
 #categoryPicker > summary::-webkit-details-marker { display: none; }
 #categoryPicker[open] > summary { background: #edf4ef; }
@@ -43,6 +45,15 @@ footer { padding: 0 24px 20px; } #ordinary { display: block; width: 100%; }
 #categoryOptions label { display: flex; align-items: center; gap: 10px; border-radius: 5px; padding: 8px; cursor: pointer; font-size: 13px; }
 #categoryOptions label:hover { background: #edf4ef; }
 #categoryOptions input, #proposals input { accent-color: #235b4c; }
+#newCategoryForm { margin-top: 12px; padding: 16px; border: 1px solid #dbe4df; border-radius: 10px; background: #f4f7f3; }
+.category-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.category-fields label { min-width: 0; color: #52665f; font-size: 12px; font-weight: 600; }
+.category-fields input, .category-fields select { display: block; width: 100%; margin-top: 5px; padding: 9px 10px; border: 1px solid #c0d2ca; border-radius: 7px; background: white; color: #202d32; font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+#newCategoryHint { margin: 10px 0 14px; overflow-wrap: anywhere; }
+#newCategoryError { color: #993a2b; font-size: 12px; }
+.new-category-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.new-category-actions button { padding: 7px 12px; font-size: 12px; }
+@media (max-width: 500px) { .category-fields { grid-template-columns: 1fr; gap: 10px; } }
 .message, #partial, #question, #send { font-size: 15px; }
 .message { white-space: normal; }
 .message.user > div { white-space: pre-wrap; }

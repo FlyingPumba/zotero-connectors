@@ -56,6 +56,19 @@ try {
         currentJob.existingCollections = currentJob.existingCollections.filter(c => c.key !== data.key);
         if (data.selected) currentJob.existingCollections.push(currentJob.availableCollections.find(c => c.key === data.key));
       }
+      if (method === 'createCategory') {
+        Zotero.Research.createdCategoryRequests = (Zotero.Research.createdCategoryRequests || 0) + 1;
+        await new Promise(resolve => setTimeout(resolve, 250));
+        if (data.name === 'Fail creation') throw new Error('Could not create this category');
+        let category = currentJob.availableCollections.find(c => c.name === data.name && (c.parentKey || null) === data.parentKey);
+        if (!category) {
+          const parent = currentJob.availableCollections.find(c => c.key === data.parentKey);
+          category = {key: 'manual-' + Zotero.Research.createdCategoryRequests, name: data.name, parentKey: data.parentKey,
+            path: (parent ? parent.path + ' / ' : '') + data.name};
+          currentJob.availableCollections.push(category);
+        }
+        if (!currentJob.existingCollections.some(c => c.key === category.key)) currentJob.existingCollections.push(category);
+      }
       if (method === 'approve') currentJob = {...currentJob, approved: data.selected};
       return currentJob;
     };
@@ -121,7 +134,8 @@ try {
   await panel.waitForFunction(previous => document.getElementById('elapsed').textContent !== previous, {}, progress.elapsed);
   const job = {id: 'ui-test', status: 'ready', stage: 'Ready to discuss', title: 'Paper preview',
     summary: 'A saved result. '.repeat(150), messages: [], existingCollections: [{key: 'a', path: 'Machine learning / Attention'}],
-    availableCollections: [{key: 'a', path: 'Machine learning / Attention'}, {key: 'b', path: 'Safety / Oversight'}, {key: 'fail', path: 'Broken category'}],
+    availableCollections: [{key: 'a', name: 'Attention', parentKey: null, path: 'Machine learning / Attention'},
+      {key: 'b', name: 'Oversight', parentKey: null, path: 'Safety / Oversight'}, {key: 'fail', name: 'Broken category', parentKey: null, path: 'Broken category'}],
     threadId: '019-test-persistent-session', model: 'gpt-6-astra', sourceInfo: {kind: 'PDF text'},
     proposedCollections: [{name: 'A proposed category', reason: 'Relevant topic'}], coverage: 'full_text'};
   await worker.evaluate(job => Zotero.Research.setTestJob(job), job);
@@ -200,6 +214,57 @@ try {
   await panel.waitForFunction(() => document.getElementById('categoryStatus').textContent === 'Category save failed');
   assert.equal(await panel.$eval('input[data-key="fail"]', n => n.checked), false);
   await panel.click('#categoryPicker > summary');
+  // The iframe recenters when this inline form changes the panel height.
+  const clickCategoryControl = async selector => {
+    await panel.waitForFunction(() => innerHeight === Math.min(760, Math.ceil(document.body.getBoundingClientRect().height)));
+    await panel.locator(selector).click();
+  };
+  const categoryButtons = await panel.$$eval('.category-actions > *', nodes => nodes.map(n => n.getBoundingClientRect().top));
+  assert.equal(categoryButtons[0], categoryButtons[1], 'New category sits next to Edit categories');
+  await clickCategoryControl('#newCategory');
+  assert.equal(await panel.evaluate(() => document.activeElement.id), 'newCategoryName');
+  assert.equal(await panel.$eval('#newCategory', n => n.getAttribute('aria-expanded')), 'true');
+  assert.equal(await panel.$eval('#createCategory', n => n.disabled), true, 'An empty name cannot be submitted');
+  await panel.type('#newCategoryName', '  Manual topic  ');
+  await panel.select('#newCategoryParent', 'b');
+  assert.match(await panel.$eval('#newCategoryHint', n => n.textContent), /Safety \/ Oversight \/ Manual topic/);
+  await panel.evaluate(() => refresh());
+  assert.equal(await panel.$eval('#newCategoryName', n => n.value), '  Manual topic  ', 'Polling preserves the draft');
+  assert.equal(await panel.$eval('#newCategoryParent', n => n.value), 'b');
+  await page.screenshot({path: output + '/zotero-new-category.png'});
+  await panel.focus('#newCategoryName');
+  await page.keyboard.press('Enter');
+  await panel.waitForFunction(() => categoryBusy);
+  assert.equal(await panel.$eval('#createCategory', n => n.disabled), true);
+  await page.keyboard.press('Enter');
+  await panel.waitForFunction(() => !categoryBusy && document.getElementById('newCategoryForm').hidden);
+  assert.equal(await worker.evaluate(() => Zotero.Research.createdCategoryRequests), 1, 'Ignore repeated submission while saving');
+  assert.match(await panel.$eval('#categoryChips', n => n.textContent), /Safety \/ Oversight \/ Manual topic/);
+  const createdCategoryCount = await panel.$$eval('#categoryChips > *', nodes => nodes.length);
+  await clickCategoryControl('#newCategory');
+  await panel.type('#newCategoryName', 'Manual topic');
+  await panel.select('#newCategoryParent', 'b');
+  assert.equal(await panel.$eval('#createCategory', n => n.textContent), 'Add existing category',
+    JSON.stringify(await panel.evaluate(() => ({name: $('newCategoryName').value, parent: $('newCategoryParent').value,
+      hidden: $('newCategoryForm').hidden, disabled: $('newCategoryName').disabled, focus: document.activeElement.id}))));
+  await clickCategoryControl('#createCategory');
+  await panel.waitForFunction(() => !categoryBusy && document.getElementById('newCategoryForm').hidden);
+  assert.equal(await panel.$$eval('#categoryChips > *', nodes => nodes.length), createdCategoryCount);
+  await clickCategoryControl('#newCategory');
+  await panel.type('#newCategoryName', 'Fail creation');
+  await clickCategoryControl('#createCategory');
+  await panel.waitForFunction(() => !document.getElementById('newCategoryError').hidden);
+  assert.equal(await panel.$eval('#newCategoryName', n => n.value), 'Fail creation', 'Failure preserves the draft for retry');
+  assert.match(await panel.$eval('#newCategoryError', n => n.textContent), /Could not create/);
+  assert.equal(await panel.$$eval('#categoryChips > *', nodes => nodes.length), createdCategoryCount);
+  await page.keyboard.press('Escape');
+  assert.equal(await panel.$eval('#newCategoryForm', n => n.hidden), true, 'Escape closes the form, not the research panel');
+  assert.equal(await panel.evaluate(() => document.activeElement.id), 'newCategory');
+  await clickCategoryControl('#newCategory');
+  await clickCategoryControl('#cancelNewCategory');
+  assert.equal(await panel.$eval('#newCategoryName', n => n.value), '');
+  assert.equal(await worker.evaluate(() => Zotero.Research.createdCategoryRequests), 3, 'Cancel never creates a category');
+  console.log('PASS: manual category form, parent selection, saved chips, duplicate reuse, keyboard submission, draft preservation, errors, and cancellation');
   const markdownText = '**Key finding**\n\n- A grounded result\n- A limitation\n\n| Metric | Value |\n| --- | --- |\n| Recall | 0.8 |\n\n```python\nprint("hello")\n```\n\n[Paper](https://example.org/paper) <img src=x onerror="window.pwned=1"> <script>window.pwned=1</script> [bad](javascript:alert(1))';
   await panel.evaluate(text => { render({...job, messages: [{role: 'user', text: '**Keep this literal**'}, {role: 'assistant', text}]}); }, markdownText);
   assert.deepEqual(await panel.$$eval('#messages .message-role', nodes => nodes.map(n => n.textContent)), ['User', 'Assistant']);
@@ -284,6 +349,15 @@ $$\begin{pmatrix}a & b \\ c & d\end{pmatrix}$$
   await panel.waitForFunction(() => innerWidth <= 388);
   const narrow = await (await panel.frameElement()).boundingBox();
   assert.ok(narrow.x >= 15 && narrow.y >= 15 && narrow.height <= 668, JSON.stringify(narrow));
+  await panel.focus('#newCategory');
+  await page.keyboard.press('Enter');
+  await panel.type('#newCategoryName', 'A nested topic');
+  const categoryFields = await panel.$$eval('.category-fields label', nodes => nodes.map(n => ({top: n.getBoundingClientRect().top, bottom: n.getBoundingClientRect().bottom})));
+  assert.ok(categoryFields[1].top > categoryFields[0].bottom, 'Fields stack on narrow screens');
+  assert.equal(await panel.evaluate(() => document.body.scrollWidth <= innerWidth), true, 'The form does not overflow the panel');
+  await page.screenshot({path: output + '/zotero-new-category-narrow.png'});
+  await panel.focus('#cancelNewCategory');
+  await page.keyboard.press('Enter');
   await page.setViewport({width: 1100, height: 900});
   await panel.waitForFunction(() => innerWidth === 760);
   await panel.evaluate(() => refresh()); // Restore backend state after the render-only Markdown fixture.
