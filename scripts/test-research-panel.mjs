@@ -209,6 +209,65 @@ try {
   assert.equal(await panel.$$eval('.assistant pre code', n => n.length), 1);
   assert.equal(await panel.$$eval('.assistant script, .assistant img, .assistant [onerror], .assistant [href^="javascript:"]', n => n.length), 0);
   assert.equal(await panel.$$eval('.user > div strong', n => n.length), 0);
+
+  const mathText = String.raw`### How do they measure faithfulness?
+
+- **Behavioral preferences, \(\hat p\):** weights inferred from choices.
+- **Reported preferences, \(\tilde p\):** the average reported weights.
+
+Their metric is:
+
+\[
+\text{Faithfulness}=\operatorname{corr}(\hat p,\tilde p).
+\]
+
+Inline dollars: $x_i^2$. Costs $5 and $10; escaped \$25.
+
+$$\begin{pmatrix}a & b \\ c & d\end{pmatrix}$$
+
+| Quantity | Formula |
+| --- | --- |
+| Estimate | $p_i$ |
+` + '\nLiteral code: `\\(x_i\\)`\n\n```tex\n\\[x_i\\]\n```';
+  const summaryMath = String.raw`Plain **summary** with \(p_i\).`;
+  await panel.evaluate(({mathText, summaryMath}) => {
+    render({...job, discussionHTML: null, summary: summaryMath, messages: [{role: 'assistant', text: mathText}]});
+  }, {mathText, summaryMath});
+  assert.equal(await panel.$$eval('.assistant .katex', nodes => nodes.length), 6);
+  assert.equal(await panel.$$eval('.assistant .katex-display', nodes => nodes.length), 2);
+  assert.equal(await panel.$$eval('.assistant .katex-error', nodes => nodes.length), 0);
+  assert.equal(await panel.$eval('.assistant .katex-display annotation', n => n.textContent.trim()), String.raw`\text{Faithfulness}=\operatorname{corr}(\hat p,\tilde p).`);
+  assert.equal(await panel.$$eval('.assistant code .katex', nodes => nodes.length), 0, 'Code remains literal');
+  assert.ok(await panel.$eval('.assistant', n => n.textContent.includes('Costs $5 and $10; escaped $25.')));
+  assert.equal(await panel.$$eval('#summary .katex', nodes => nodes.length), 1);
+  assert.ok(await panel.$eval('#summary', n => n.textContent.startsWith('Plain **summary** with')), 'Summary prose retains plain-text formatting');
+  await panel.evaluate(() => document.fonts.ready);
+  assert.equal(await panel.evaluate(() => [...document.fonts].filter(f => f.status === 'loaded').some(f => f.family.startsWith('KaTeX_'))), true, 'Bundled math fonts load in the extension');
+  await page.screenshot({path: output + '/zotero-research-math.png'});
+
+  // Completed discussions usually come back as saved Zotero HTML, whose old
+  // Markdown renderer stripped delimiters. Recover only unchanged answers.
+  await panel.evaluate(text => {
+    render({...job, discussionHTML: '<h2>Assistant</h2>' + markdownHTML(text, marked), discussionMessageCount: 1});
+  }, mathText);
+  assert.equal(await panel.$$eval('.assistant .katex', nodes => nodes.length), 6, 'Saved answers also render formulas');
+  await panel.evaluate(() => render({...job, discussionHTML: job.discussionHTML.replace('weights inferred from choices.', 'My edited interpretation.')}));
+  assert.ok(await panel.$eval('.assistant', n => n.textContent.includes('My edited interpretation.')), 'Never replace an edited Zotero note with the original answer');
+
+  await panel.evaluate(() => render({...job, discussionHTML: null, messages: [], partial: String.raw`Let \(\frac{`}));
+  assert.equal(await panel.$eval('#partial', n => n.textContent.trimEnd()), String.raw`Let (\frac{`);
+  await panel.evaluate(() => render({...job, partial: String.raw`Let \(\frac{x}{y}\)`}));
+  assert.equal(await panel.$$eval('#partial .katex', nodes => nodes.length), 1, 'Math appears once a streamed formula is complete');
+  await panel.evaluate(() => render({...job, partial: String.raw`\(\frac{x}\) and \(\unknowncommand{x}\) and \(\href{javascript:alert(1)}{click}\)`}));
+  assert.equal(await panel.$$eval('#partial .katex-error', nodes => nodes.length), 1, 'Malformed TeX stays visible without breaking the answer');
+  assert.ok(await panel.$eval('#partial', n => n.textContent.includes('\\unknowncommand')), 'Unsupported commands stay visible');
+  assert.equal(await panel.$$eval('#partial a, #partial script, #partial iframe', nodes => nodes.length), 0, 'Formula commands cannot add executable links');
+  await panel.evaluate(() => render({...job, partial: '\\[' + Array.from({length: 60}, (_, i) => 'x_{' + i + '}').join('+') + '\\]'}));
+  const formulaLayout = await panel.$eval('#partial .research-math-display', n => ({width: n.clientWidth, scroll: n.scrollWidth, panel: document.documentElement.clientWidth, body: document.body.scrollWidth}));
+  assert.ok(formulaLayout.scroll > formulaLayout.width, 'Long equations scroll horizontally');
+  assert.ok(formulaLayout.body <= formulaLayout.panel, 'Long equations do not widen the panel');
+  console.log('PASS: inline/display math, saved discussions, streaming, local fonts, literal code/currency, and note-edit preservation');
+  await panel.evaluate(text => render({...job, discussionHTML: null, partial: '', messages: [{role: 'user', text: '**Keep this literal**'}, {role: 'assistant', text}]}), markdownText);
   await panel.focus('#session > summary');
   await page.keyboard.press('Enter');
   await panel.waitForFunction(() => $('session').open);

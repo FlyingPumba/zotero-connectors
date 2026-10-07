@@ -1,4 +1,4 @@
-/* global browser, marked, DOMPurify */
+/* global browser, marked, DOMPurify, mathMarkdown, typesetMath, textMath */
 const $ = id => document.getElementById(id);
 let job, busy = false, timer, requestID = crypto.randomUUID(), approvalID, messageSnapshot, actionStartedAt, activeAction, categorySnapshot, categoryBusy = false;
 browser.runtime.onMessage.addListener(message => {
@@ -10,12 +10,17 @@ async function call(action, data = {}) {
 	return result;
 }
 function error(e) { $('error').textContent = e.message; $('error').hidden = false; }
-function markdown(node, text) {
-	node.innerHTML = DOMPurify.sanitize(marked.parse(text || ''), {
+function markdownHTML(text, parser = mathMarkdown) {
+	return DOMPurify.sanitize(parser.parse(text || ''), {
 		ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'del', 'a', 'code', 'pre', 'blockquote', 'ul', 'ol', 'li',
-			'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'sup', 'sub'],
+			'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'sup', 'sub',
+			...(parser === mathMarkdown ? ['span'] : [])],
 		ALLOWED_ATTR: ['href', 'title', 'start', 'class']
 	});
+}
+function markdown(node, text) {
+	node.innerHTML = markdownHTML(text);
+	typesetMath(node);
 	for (const link of node.querySelectorAll('a')) { link.target = '_blank'; link.rel = 'noopener noreferrer'; }
 }
 function renderSavedDiscussion(html) {
@@ -33,6 +38,19 @@ function renderSavedDiscussion(html) {
 			if (!content) { content = document.createElement('div'); content.className = 'markdown'; $('messages').append(content); }
 			content.append(node);
 		}
+	}
+	const blocks = [...$('messages').querySelectorAll('.message')];
+	const saved = (job.messages || []).slice(0, job.discussionMessageCount || 0);
+	if (blocks.length === saved.length) {
+		blocks.forEach((block, index) => {
+			if (saved[index].role !== 'assistant' || !block.classList.contains('assistant')) return;
+			const content = block.lastElementChild;
+			// Older notes have already lost their math delimiters to Markdown.
+			// Re-render from the original only when the saved answer is unchanged.
+			const original = document.createElement('div'); original.innerHTML = markdownHTML(saved[index].text, marked);
+			const normalized = node => [...node.childNodes].filter(n => n.nodeType !== Node.TEXT_NODE || n.textContent.trim()).map(n => n.outerHTML || n.textContent).join('');
+			if (normalized(content) === normalized(original)) markdown(content, saved[index].text);
+		});
 	}
 	for (const link of $('messages').querySelectorAll('a')) { link.target = '_blank'; link.rel = 'noopener noreferrer'; }
 }
@@ -125,7 +143,7 @@ function render(next) {
 	$('chat').hidden = !['ready', 'chatting', 'summarizing'].includes(job?.status);
 	if (!job) return;
 	$('title').textContent = job.title;
-	$('summary').textContent = job.summary || '';
+	textMath($('summary'), job.summary || '');
 	$('coverage').textContent = job.sourceInfo?.warning || '';
 	$('coverage').hidden = !job.sourceInfo?.warning;
 	renderCategories();
@@ -140,7 +158,7 @@ function render(next) {
 			reason.textContent = proposal.reason; label.append(reason); $('proposals').append(label);
 		});
 	}
-	const snapshot = JSON.stringify([job.messages, job.discussionHTML]);
+	const snapshot = JSON.stringify([job.messages, job.discussionHTML, job.discussionMessageCount]);
 	if (snapshot !== messageSnapshot) {
 		messageSnapshot = snapshot; $('messages').replaceChildren();
 		if (job.discussionHTML != null) renderSavedDiscussion(job.discussionHTML);
