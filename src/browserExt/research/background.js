@@ -20,6 +20,13 @@ Zotero.Research = {
 			const redirect = (await landing.text()).match(/\blocation\.replace\(\s*("(?:[^"\\]|\\.)*")\s*\)/);
 			if (redirect) target.url = JSON.parse(redirect[1]);
 		}
+		if (new URL(target.url).hostname === 'lnkd.in') {
+			// LinkedIn short links expose their destination in an intermediate page.
+			const landing = await fetch(target.url, {...options, method: 'GET', redirect: 'manual'});
+			const anchor = (await landing.text()).match(/<a\b[^>]*\bdata-tracking-control-name=["']external_url_click["'][^>]*>/i);
+			const href = anchor?.[0].match(/\bhref=(["'])(.*?)\1/i)?.[2];
+			if (href) target.url = href.replace(/&amp;/g, '&');
+		}
 		return target;
 	},
 	async paperLinks(thread) {
@@ -29,7 +36,7 @@ Zotero.Research = {
 			for (const link of post.links) {
 				let url = new URL(link.url);
 				if (!['http:', 'https:'].includes(url.protocol)) continue;
-				if (url.hostname === 't.co') {
+				if (['t.co', 'lnkd.in'].includes(url.hostname)) {
 					// Expand short URLs for the chooser without reading linked pages.
 					// An unavailable redirect remains selectable as its original URL.
 					if (!resolved.has(url.href)) {
