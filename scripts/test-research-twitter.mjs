@@ -5,7 +5,20 @@ import {createServer} from 'node:http';
 import {fileURLToPath} from 'node:url';
 import puppeteer from 'puppeteer';
 const root = fileURLToPath(new URL('..', import.meta.url)).replace(/\/$/, '');
+// A real PDF response, including a URL with no PDF suffix.
+const objects = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+  '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>'];
+let pdf = '%PDF-1.4\n'; const offsets = [0];
+for (const [i, object] of objects.entries()) { offsets.push(Buffer.byteLength(pdf)); pdf += `${i + 1} 0 obj\n${object}\nendobj\n`; }
+const xref = Buffer.byteLength(pdf);
+pdf += 'xref\n0 4\n0000000000 65535 f \n' + offsets.slice(1).map(n => `${String(n).padStart(10, '0')} 00000 n \n`).join('')
+  + `trailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+const paperRequests = [];
 const server = createServer((req, res) => {
+  paperRequests.push({url: req.url, method: req.method});
+  if (req.url.startsWith('/downloads/') || req.url.startsWith('/download?')) {
+    res.setHeader('Content-Type', 'application/pdf'); res.end(pdf); return;
+  }
   res.setHeader('Content-Type', 'text/html');
   res.end('<!doctype html><title>Linked research paper</title><meta name="citation_title" content="Linked research paper"><meta name="citation_author" content="Researcher, A"><h1>Linked research paper</h1><p>The paper, not the Twitter post.</p>');
 });
@@ -34,8 +47,7 @@ try {
       ]});
     });
     assert.deepEqual(live.map(p => p.url), ['https://arxiv.org/abs/2605.02105', 'https://arxiv.org/abs/2603.16127', 'https://arxiv.org/abs/2604.13627']);
-    assert.equal(live.find(p => p.primary)?.url, 'https://arxiv.org/abs/2604.13627');
-    console.log('PASS: real Chrome requests resolve all three paper links in the reported thread and identify its main paper');
+    console.log('PASS: real Chrome requests resolve all three paper links in the reported thread for selection');
   }
   await worker.evaluate(async paperURL => {
     await Zotero.initDeferred.promise; await Zotero.Prefs.set('firstUse', false);
@@ -46,6 +58,7 @@ try {
     self.fetch = async (url, options) => {
       if (String(url).startsWith('https://t.co/')) {
         Zotero.Research.testLinkRequests.push({url, method: options?.method, redirect: options?.redirect});
+        if (url === 'https://t.co/unavailable') throw new Error('Redirect unavailable');
         if (Zotero.Research.testRedirectMode === 'http') return {url: paperURL, headers: new Headers({'Content-Type': 'application/pdf'})};
         // Actual t.co browser response: HEAD stays on t.co; GET returns a script
         // redirect. Parsing its JSON string must never execute the script.
@@ -85,7 +98,12 @@ try {
   }
   for (const mode of ['entry', 'pdf']) {
     const {panel} = await openPanel();
+    const count = await worker.evaluate(() => Zotero.Research.testStarts.length);
     await panel.locator('#' + mode).click();
+    await panel.waitForSelector('#paperChoice:not([hidden])');
+    assert.equal(await worker.evaluate(() => Zotero.Research.testStarts.length), count, 'A labelled paper card still requires a choice');
+    assert.equal(await panel.$$eval('#paperChoices button', nodes => nodes.length), 2, 'Include the code URL too');
+    await panel.locator('#paperChoices button:nth-child(2)').click();
     await panel.waitForFunction(() => !document.getElementById('paper').hidden || !document.getElementById('error').hidden, {timeout: 60000});
     assert.equal(await panel.$eval('#error', e => e.hidden ? '' : e.textContent), '');
     const request = await worker.evaluate(() => Zotero.Research.testStarts.at(-1));
@@ -108,7 +126,7 @@ try {
     finally { Zotero.Research.testRedirectMode = 'html'; }
   });
   assert.equal(httpRedirect.url, paperURL);
-  console.log('PASS: both Add modes follow the paper, use its metadata, capture only the main thread with pictures/quotes, and leave other links untouched');
+  console.log('PASS: both Add modes require a choice, follow the selected paper, and capture only the main thread with pictures/quotes');
 
   html = '<!doctype html><title>Twitter</title>' + first + post('102', `Related work: <a href="${paperURL}">First.pdf</a> and <a href="${paperURL}?v=2">Second.pdf</a>`)
     + post('201', 'Reply', '', 'someone_else');
@@ -117,19 +135,48 @@ try {
   await panel.locator('#entry').click();
   await panel.waitForSelector('#paperChoice:not([hidden])');
   assert.equal(await worker.evaluate(() => Zotero.Research.testStarts.length), count, 'Ambiguous links do not create an item');
-  assert.equal(await panel.$$eval('#paperChoices button', nodes => nodes.length), 2);
-  await panel.locator('#paperChoices button:nth-child(2)').click();
+  assert.equal(await panel.$$eval('#paperChoices button', nodes => nodes.length), 3);
+  await panel.locator('#paperChoices button:nth-child(3)').click();
   await panel.waitForSelector('#paper:not([hidden])');
   assert.equal(await worker.evaluate(() => Zotero.Research.testStarts.at(-1).source.url), paperURL + '?v=2');
   console.log('PASS: ambiguous links offer a choice before saving; selection continues normally');
 
-  // Link discovery must prefer the explicitly labelled main paper over citations.
-  const preferred = await worker.evaluate(async paperURL => {
-    return Zotero.Research.paperLinks({posts: [{text: 'Concurrent works', links: [{url: 'https://arxiv.org/abs/2605.02105', label: 'Related'}]},
-      {text: '11/ With the authors.\nPaper:', links: [{url: paperURL, label: 'Main PDF', card: true}]}]});
-  }, paperURL);
-  assert.equal(preferred.filter(p => p.primary).length, 1);
-  assert.equal(preferred.find(p => p.primary).url, paperURL);
+  for (const [mode, path] of [['entry', '/downloads/paper.pdf'], ['pdf', '/download?id=123']]) {
+    const url = new URL(path, paperURL).href;
+    html = '<!doctype html><title>Twitter</title>' + post('101', `Our paper: <a href="${url}">Download</a>`);
+    ({panel} = await openPanel());
+    const starts = await worker.evaluate(() => Zotero.Research.testStarts.length), requests = paperRequests.length;
+    await panel.locator('#' + mode).click();
+    await panel.waitForSelector('#paperChoice:not([hidden])');
+    assert.equal(await panel.$$eval('#paperChoices button', nodes => nodes.length), 1, 'A single URL still requires a choice');
+    assert.equal(await worker.evaluate(() => Zotero.Research.testStarts.length), starts);
+    assert.equal(paperRequests.length, requests, 'Do not read an unselected destination');
+    await panel.locator('#paperChoices button').click();
+    await panel.waitForFunction(() => !document.getElementById('paper').hidden || !document.getElementById('error').hidden, {timeout: 60000});
+    assert.equal(await panel.$eval('#error', e => e.hidden ? '' : e.textContent), '');
+    const saved = await worker.evaluate(() => Zotero.Research.testStarts.at(-1));
+    assert.equal(saved.mode, mode); assert.equal(saved.source.url, url);
+    assert.ok(saved.source.pdfURLs.includes(url), 'The selected real PDF reaches the PDF extraction workflow');
+  }
+  console.log('PASS: single-URL confirmation and real PDFs on arbitrary paths, including without a PDF suffix');
+
+  html = '<!doctype html><title>Twitter</title>' + post('101', 'Our paper:',
+    '<div data-testid="card.wrapper"><a href="https://arxiv.org/abs/2605.02105">arxiv.org Paper</a></div>')
+    + post('102', `Actually the paper: <a href="${paperURL}">Download</a>`);
+  ({panel} = await openPanel());
+  const starts = await worker.evaluate(() => Zotero.Research.testStarts.length);
+  await panel.locator('#entry').click(); await panel.waitForSelector('#paperChoice:not([hidden])');
+  assert.equal(await worker.evaluate(() => Zotero.Research.testStarts.length), starts, 'Never auto-select the labelled arXiv card');
+  assert.equal(await panel.$$eval('#paperChoices button', nodes => nodes.length), 2);
+  await panel.locator('#paperChoices button:nth-child(2)').click(); await panel.waitForSelector('#paper:not([hidden])');
+  assert.equal(await worker.evaluate(() => Zotero.Research.testStarts.at(-1).source.url), paperURL);
+
+  const links = await worker.evaluate(() => Zotero.Research.paperLinks({posts: [{text: '', links: [
+    {url: 'https://t.co/unavailable', label: 'Unavailable redirect'},
+    {url: 'https://example.org/download?id=42', label: 'Paper'},
+    {url: 'https://example.org/download?id=42', label: 'Duplicate'}]}]}));
+  assert.deepEqual(links.map(link => link.url), ['https://t.co/unavailable', 'https://example.org/download?id=42']);
+  console.log('PASS: citations never override the selection; unknown destinations and unavailable short URLs remain selectable');
 
   // Twitter can load a continuation only after scrolling. Recommendations from
   // the same author still do not belong to the thread.
@@ -146,10 +193,12 @@ try {
   assert.equal(await page.evaluate(() => scrollY), 0, 'Restore the original scroll position');
   console.log('PASS: lazy continuation is captured, same-author recommendations excluded, and scroll position restored');
 
-  html = '<!doctype html><title>Twitter</title>' + first + post('201', 'Reply', '', 'someone_else');
+  html = '<!doctype html><title>Twitter</title>' + post('101', 'A thread without links') + post('201', 'Reply', card, 'someone_else');
   ({panel} = await openPanel());
+  const beforeRefusal = await worker.evaluate(() => Zotero.Research.testStarts.length);
   await panel.locator('#entry').click(); await panel.waitForSelector('#error:not([hidden])');
-  assert.match(await panel.$eval('#error', n => n.textContent), /No arXiv or PDF link/);
+  assert.match(await panel.$eval('#error', n => n.textContent), /No URL was found/);
+  assert.equal(await worker.evaluate(() => Zotero.Research.testStarts.length), beforeRefusal);
   await panel.locator('#close').click();
   ({panel} = await openPanel()); await panel.locator('#ordinary').click();
   await worker.waitForFunction(() => Zotero.Research.testOrdinary === 1);
