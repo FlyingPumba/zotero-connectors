@@ -46,12 +46,13 @@ if (Zotero.isManifestV3 && window.top === window) {
 				return {ok: true};
 			}
 			if (message.research === 'show') {
+				// Keep an opaque backing behind the document during macOS scroll bounce.
 				if (!researchFrame) researchFrame = new Zotero.Frame({
 					src: Zotero.getExtensionURL('research/panel.html'), title: 'Zotero Research', allow: 'clipboard-write',
 					'data-single-file-hidden-frame': ''
 				}, {position: 'fixed', top: '16px', right: '16px', width: '360px', maxWidth: 'calc(100vw - 32px)',
 					height: '280px', maxHeight: 'min(760px, calc(100vh - 32px))', border: '0', borderRadius: '16px',
-					boxShadow: '0 12px 60px #0005', zIndex: 2147483647, colorScheme: 'light'});
+					background: '#fcfcf9', boxShadow: '0 12px 60px #0005', zIndex: 2147483647, colorScheme: 'light'});
 				await researchFrame.init(); return {ok: true};
 			}
 			if (message.research !== 'extract') return;
