@@ -28,7 +28,8 @@ const browser = await puppeteer.launch({headless: true, pipe: true, channel: 'ch
 const post = (id, text, extra = '', author = 'researcher') => `<article data-testid="tweet"><div data-testid="User-Name"><a href="/${author}">${author}</a><a href="/${author}">@${author}</a><a href="/${author}/status/${id}"><time datetime="2026-10-06T10:00:00Z">Oct 6</time></a></div><div data-testid="tweetText">${text}</div>${extra}</article>`;
 const card = `<div data-testid="card.wrapper"><a href="https://t.co/paper">arxiv.org<br>Linked research paper</a></div>`;
 const photo = `<div data-testid="tweetPhoto"><img alt="Result chart" src="https://pbs.twimg.com/media/test?format=png&name=medium"></div>`;
-const first = post('101', '1/ New paper. <a href="https://github.com/example/code">Code</a>', photo);
+const mentions = '<a href="https://x.com/colleague">@colleague</a> <a href="https://mobile.twitter.com/another">@another</a>';
+const first = post('101', '1/ New paper. ' + mentions + ' <a href="https://github.com/example/code">Code</a>', photo);
 const second = post('102', '2/ Paper:', card + '<div role="link"><div data-testid="User-Name">Quoted author</div><div data-testid="tweetText">Quoted context</div></div>');
 try {
   const target = await browser.waitForTarget(t => t.type() === 'service_worker' && t.url().endsWith('background-worker.js'));
@@ -60,6 +61,7 @@ try {
         Zotero.Research.testLinkRequests.push({url, method: options?.method, redirect: options?.redirect});
         if (url === 'https://t.co/unavailable') throw new Error('Redirect unavailable');
         if (url === 'https://t.co/solearxiv') return {url: 'https://arxiv.org/abs/2605.02105', headers: new Headers({'Content-Type': 'text/html'})};
+        if (url === 'https://t.co/social') return {url: 'https://www.x.com/colleague/status/123', headers: new Headers({'Content-Type': 'text/html'})};
         if (Zotero.Research.testRedirectMode === 'http') return {url: paperURL, headers: new Headers({'Content-Type': 'application/pdf'})};
         // Actual t.co browser response: HEAD stays on t.co; GET returns a script
         // redirect. Parsing its JSON string must never execute the script.
@@ -111,6 +113,7 @@ try {
     assert.equal(request.mode, mode); assert.equal(request.source.url, paperURL);
     assert.equal(request.item.title, 'Linked research paper');
     assert.equal(request.twitterThread.posts.length, 2, 'Exclude replies, including later author replies');
+    assert.ok(request.twitterThread.posts[0].links.some(link => link.url === 'https://x.com/colleague'), 'Keep excluded candidate links in the saved thread');
     assert.equal(request.twitterThread.posts[0].pictures[0].alt, 'Result chart');
     assert.equal(request.twitterThread.posts[1].quotes[0].text, 'Quoted context');
     assert.equal(await page.url(), 'https://x.com/researcher/status/101', 'Keep the original Twitter tab');
@@ -182,7 +185,7 @@ try {
   });
   try {
     for (const [mode, url] of [['entry', 'https://export.arxiv.org/pdf/2605.02105.pdf'], ['pdf', 'https://t.co/solearxiv']]) {
-      html = '<!doctype html><title>Twitter</title>' + post('101', `Paper: <a href="${url}">Read it</a>`);
+      html = '<!doctype html><title>Twitter</title>' + post('101', `${mentions} Paper: <a href="${url}">Read it</a>`);
       ({panel} = await openPanel());
       const count = await worker.evaluate(() => Zotero.Research.testStarts.length);
       await panel.locator('#' + mode).click(); await panel.waitForSelector('#paper:not([hidden])');
@@ -197,6 +200,9 @@ try {
   console.log('PASS: one arXiv paper URL skips the chooser in both Add modes, including expanded short links');
 
   const links = await worker.evaluate(() => Zotero.Research.paperLinks({posts: [{text: '', links: [
+    {url: 'https://x.com/colleague'}, {url: 'https://twitter.com/colleague/status/123'},
+    {url: 'https://mobile.x.com/colleague'}, {url: 'https://www.twitter.com/colleague'},
+    {url: 'https://t.co/social'},
     {url: 'https://t.co/unavailable', label: 'Unavailable redirect'},
     {url: 'https://example.org/download?id=42', label: 'Paper'},
     {url: 'https://example.org/download?id=42', label: 'Duplicate'}]}]}));
@@ -218,13 +224,15 @@ try {
   assert.equal(await page.evaluate(() => scrollY), 0, 'Restore the original scroll position');
   console.log('PASS: lazy continuation is captured, same-author recommendations excluded, and scroll position restored');
 
-  html = '<!doctype html><title>Twitter</title>' + post('101', 'A thread without links') + post('201', 'Reply', card, 'someone_else');
-  ({panel} = await openPanel());
-  const beforeRefusal = await worker.evaluate(() => Zotero.Research.testStarts.length);
-  await panel.locator('#entry').click(); await panel.waitForSelector('#error:not([hidden])');
-  assert.match(await panel.$eval('#error', n => n.textContent), /No URL was found/);
-  assert.equal(await worker.evaluate(() => Zotero.Research.testStarts.length), beforeRefusal);
-  await panel.locator('#close').click();
+  for (const text of ['A thread without links', mentions]) {
+    html = '<!doctype html><title>Twitter</title>' + post('101', text) + post('201', 'Reply', card, 'someone_else');
+    ({panel} = await openPanel());
+    const beforeRefusal = await worker.evaluate(() => Zotero.Research.testStarts.length);
+    await panel.locator('#entry').click(); await panel.waitForSelector('#error:not([hidden])');
+    assert.match(await panel.$eval('#error', n => n.textContent), /No paper URL was found/);
+    assert.equal(await worker.evaluate(() => Zotero.Research.testStarts.length), beforeRefusal);
+    await panel.locator('#close').click();
+  }
   ({panel} = await openPanel()); await panel.locator('#ordinary').click();
   await worker.waitForFunction(() => Zotero.Research.testOrdinary === 1);
   assert.equal(await worker.evaluate(() => Zotero.Research.testOrdinary), 1);
