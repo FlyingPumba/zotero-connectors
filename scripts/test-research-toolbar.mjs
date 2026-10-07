@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {createServer} from 'node:http';
 import {fileURLToPath} from 'node:url';
+import {checkPanelDocking} from './research-panel-docking-checks.mjs';
 const root = fileURLToPath(new URL('..', import.meta.url)).replace(/\/$/, '');
 const require = createRequire(root + '/package.json');
 const {default: puppeteer} = await import(require.resolve('puppeteer'));
@@ -153,6 +154,7 @@ try {
       assert.equal(request.source.url, pdfURL);
       assert.ok(request.source.pdfURLs.includes(pdfURL), 'The actual PDF URL reaches text extraction');
       assert.equal(await worker.evaluate(() => Zotero.Research.ordinarySaves.length), 0);
+      if (mode === 'entry' && pdfURL.startsWith(base)) await checkPanelDocking(pdfPage, pdfPanel);
     }
     await pdfPage.close();
     console.log(`PASS: PDF toolbar ${mode} opens the research panel and follows the selected workflow (${pdfURL})`);

@@ -1,8 +1,16 @@
 <!doctype html>
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Add &amp; Summarize</title><link rel="stylesheet" href="../lib/katex/katex.min.css"><link rel="stylesheet" href="panel.css"></head>
-<body>
-<header><div><span class="eyebrow">ZOTERO RESEARCH</span><h1 id="title" hidden></h1></div><button id="close" class="icon" aria-label="Close">×</button></header>
+<body data-mode="floating">
+<header>
+  <div id="panelHeading"><span class="eyebrow">ZOTERO RESEARCH</span><h1 id="title" hidden></h1></div>
+  <button id="restore" hidden aria-label="Open docked panel"><span id="restoreTitle">Zotero Research</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 15 6-6 6 6"/></svg></button>
+  <div class="panel-controls">
+    <button id="dock" class="icon" aria-label="Dock panel" title="Dock panel"><svg class="dock-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M13 10h8M13 10v10"/></svg><svg class="detach-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-7 7M4 14v6h6M4 20l7-7"/></svg></button>
+    <button id="minimize" class="icon" hidden aria-label="Minimize panel" title="Minimize panel"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 17h14"/></svg></button>
+    <button id="close" class="icon" aria-label="Close" title="Close"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+  </div>
+</header>
 <main>
   <section id="actions"><button id="entry">Add entry &amp; Summarize</button><button id="pdf" class="secondary">Add PDF &amp; Summarize</button><button id="ordinary" class="secondary">Save with usual workflow</button></section>
   <section id="paperChoice" hidden><h2>Which URL is the paper?</h2><p>Choose the paper’s page or PDF from the links in this thread.</p><div id="paperChoices"></div></section>

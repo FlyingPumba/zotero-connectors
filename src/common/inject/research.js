@@ -30,11 +30,17 @@ if (Zotero.isManifestV3 && window.top === window) {
 			if (message.research === 'hide') { researchFrame?.remove(); researchFrame = null; return {ok: true}; }
 			if (message.research === 'resize') {
 				if (researchFrame && Number.isFinite(message.height) && message.height > 0) {
+					const minimized = message.mode === 'minimized';
+					const docked = minimized || message.mode === 'docked';
+					const centered = !docked && message.expanded;
 					Object.assign(researchFrame.frame.style, {
-						height: `${message.height}px`, width: message.expanded ? '760px' : '360px',
-						top: message.expanded ? '50%' : '16px', right: message.expanded ? 'auto' : '16px',
-						left: message.expanded ? '50%' : 'auto', transform: message.expanded ? 'translate(-50%, -50%)' : 'none',
-						boxShadow: message.expanded ? '0 18px 80px #0005, 0 0 0 100vmax #15231f55' : '0 12px 60px #0005'
+						height: `${message.height}px`, width: minimized ? '320px' : docked ? '440px' : message.expanded ? '760px' : '360px',
+						maxHeight: docked ? 'min(640px, calc(100vh - 16px))' : 'min(760px, calc(100vh - 32px))',
+						top: docked ? 'auto' : centered ? '50%' : '16px', bottom: docked ? '0' : 'auto',
+						right: centered ? 'auto' : '16px', left: centered ? '50%' : 'auto',
+						transform: centered ? 'translate(-50%, -50%)' : 'none',
+						borderRadius: docked ? '14px 14px 0 0' : '16px',
+						boxShadow: centered ? '0 18px 80px #0005, 0 0 0 100vmax #15231f55' : '0 12px 60px #0005'
 					});
 				}
 				return {ok: true};
