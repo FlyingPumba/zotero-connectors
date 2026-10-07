@@ -171,7 +171,7 @@ function render(next) {
 			block.append(name, content); $('messages').append(block);
 		}
 	}
-	markdown($('partial'), job.partial);
+	markdown($('partialContent'), job.partial);
 	$('partial').hidden = !job.partial;
 	$('send').disabled = busy || job.status !== 'ready';
 	$('question').disabled = job.status === 'chatting';
