@@ -86,7 +86,20 @@ if (isTopWindow) {
 	}
 	
 	async function sendMessageToFrame(name, data = {}) {
+		if (closeIfExtensionUnloaded()) return;
 		return Zotero.Messaging.sendToZoteroFrames(name, data);
+	}
+
+	function closeIfExtensionUnloaded() {
+		// Chrome leaves the page's timers alive when the extension is reloaded,
+		// but the old content script can no longer message its background or iframe.
+		if (!Zotero.isChromium || browser.runtime.id) return false;
+		stopCloseTimer();
+		clearInterval(syncDelayIntervalID);
+		insideIframe = false;
+		frameIsHidden = true;
+		if (zoteroFrame?.frame) zoteroFrame.frame.style.display = 'none';
+		return true;
 	}
 
 	function addMessageListener(name, handler) {
@@ -427,6 +440,7 @@ if (isTopWindow) {
 			clearInterval(syncDelayIntervalID);
 		}
 		syncDelayIntervalID = setInterval(() => {
+			if (closeIfExtensionUnloaded()) return;
 			// Don't prevent syncing when read-only or when tab isn't visible.
 			// See note in ProgressWindow.jsx::handleVisibilityChange() for latter.
 			if (isReadOnly || document.hidden || blurred) return;
