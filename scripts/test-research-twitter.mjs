@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
 import {fileURLToPath} from 'node:url';
+import {mkdir} from 'node:fs/promises';
 import puppeteer from 'puppeteer';
 const root = fileURLToPath(new URL('..', import.meta.url)).replace(/\/$/, '');
 // A real PDF response, including a URL with no PDF suffix.
@@ -16,6 +17,21 @@ pdf += 'xref\n0 4\n0000000000 65535 f \n' + offsets.slice(1).map(n => `${String(
 const paperRequests = [];
 const server = createServer((req, res) => {
   paperRequests.push({url: req.url, method: req.method});
+  if (req.url === '/short-link') {
+    res.writeHead(302, {Location: '/title-citation'}); res.end(); return;
+  }
+  const titlePages = {
+    '/title-citation': '<title>Generic site title</title><meta name="citation_title" content="A paper &amp; its findings"><meta property="og:title" content="Social title"><script>window.titleScriptRan=true</script><img src="/unrequested-image">',
+    '/title-social': '<title>Generic site title</title><meta property="og:title" content="Weightpedia: &lt;Understanding&gt; models">',
+    '/title-page': '<title>  Research\n  resources </title>',
+    '/title-refresh': '<meta http-equiv="refresh" content="0; url=\'/title-page\'">',
+    '/title-loop': '<meta http-equiv="refresh" content="0; url=/title-loop">',
+    '/title-missing': '<p>No title here</p>'
+  };
+  if (req.url in titlePages) {
+    res.setHeader('Content-Type', 'text/html'); res.end('<!doctype html>' + titlePages[req.url]); return;
+  }
+  if (req.url === '/title-failure') { res.writeHead(503); res.end(); return; }
   if (req.url === '/') {
     res.writeHead(302, {Location: '/downloads/identifying-intro-preprint.pdf'}); res.end(); return;
   }
@@ -60,11 +76,17 @@ try {
     Zotero.Research.testLinkRequests = []; Zotero.Research.testStarts = []; Zotero.Research.testOrdinary = 0;
     Zotero.Research.testRedirectMode = 'html';
     self.fetch = async (url, options) => {
+      if (['https://lnkd.in/social', 'https://lnkd.in/paper'].includes(url)) {
+        const target = url.endsWith('/social') ? 'https://x.com/researcher/status/101' : paperURL + '?a=1&b=2';
+        return {url, headers: new Headers({'Content-Type': 'text/html'}),
+          text: async () => `<title>LinkedIn</title><a class="artdeco-button" data-tracking-control-name="external_url_click" href="${target.replaceAll('&', '&amp;')}">${target}</a>`};
+      }
       if (String(url).startsWith('https://t.co/')) {
         Zotero.Research.testLinkRequests.push({url, method: options?.method, redirect: options?.redirect});
         if (url === 'https://t.co/unavailable') throw new Error('Redirect unavailable');
         if (url === 'https://t.co/solearxiv') return {url: 'https://arxiv.org/abs/2605.02105', headers: new Headers({'Content-Type': 'text/html'})};
         if (url === 'https://t.co/social') return {url: 'https://www.x.com/colleague/status/123', headers: new Headers({'Content-Type': 'text/html'})};
+        if (url === 'https://t.co/linkedin') return {url, headers: new Headers({'Content-Type': 'text/html'}), text: async () => '<script>location.replace("https://lnkd.in/paper")</script>'};
         if (Zotero.Research.testRedirectMode === 'http') return {url: paperURL, headers: new Headers({'Content-Type': 'application/pdf'})};
         // Actual t.co browser response: HEAD stays on t.co; GET returns a script
         // redirect. Parsing its JSON string must never execute the script.
@@ -87,6 +109,11 @@ try {
     };
     Zotero.Connector_Browser.saveWithTranslator = Zotero.Connector_Browser.saveAsWebpage = async () => { Zotero.Research.testOrdinary++; };
   }, paperURL);
+  assert.deepEqual(await worker.evaluate(() => Zotero.Research.paperLinks({posts: [{links: [
+    {url: 'https://lnkd.in/social'}, {url: 'https://t.co/linkedin'}, {url: 'https://lnkd.in/paper'}
+  ]}]})), [{url: paperURL + '?a=1&b=2', label: paperURL + '?a=1&b=2'}],
+  'Follow LinkedIn landing pages (including t.co chains), decode URL entities, deduplicate and exclude X destinations');
+  await worker.evaluate(() => { Zotero.Research.testLinkRequests = []; });
   const page = await browser.newPage();
   await page.setRequestInterception(true);
   let html = '<!doctype html><title>Twitter thread</title>' + first + second
@@ -94,6 +121,7 @@ try {
   page.on('request', req => {
     if (req.isNavigationRequest() && req.url().startsWith('https://x.com/')) req.respond({status: 200, contentType: 'text/html', body: html});
     else if (req.url().startsWith('https://pbs.twimg.com/')) req.respond({status: 200, contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aRDsAAAAASUVORK5CYII=', 'base64')});
+    else if (['https://github.com/example/code', 'https://arxiv.org/abs/2605.02105'].includes(req.url())) req.respond({status: 200, contentType: 'text/html', body: '<title>Linked resource</title>'});
     else req.continue();
   });
   async function openPanel(url = 'https://x.com/researcher/status/101') {
@@ -113,6 +141,8 @@ try {
     await panel.waitForSelector('#paperChoice:not([hidden])');
     assert.equal(await worker.evaluate(() => Zotero.Research.testStarts.length), count, 'A labelled paper card still requires a choice');
     assert.equal(await panel.$$eval('#paperChoices button', nodes => nodes.length), 2, 'Include the code URL too');
+    await panel.waitForFunction(() => document.querySelector('#paperChoices button:nth-child(2) > span').textContent === 'Linked research paper');
+    assert.equal(await panel.$eval('#paperChoices button:nth-child(2) > small', n => n.textContent), paperURL);
     await panel.locator('#paperChoices button:nth-child(2)').click();
     await panel.waitForFunction(() => !document.getElementById('paper').hidden || !document.getElementById('error').hidden, {timeout: 60000});
     assert.equal(await panel.$eval('#error', e => e.hidden ? '' : e.textContent), '');
@@ -167,7 +197,10 @@ try {
     await panel.waitForSelector('#paperChoice:not([hidden])');
     assert.equal(await panel.$$eval('#paperChoices button', nodes => nodes.length), 1, 'A single URL still requires a choice');
     assert.equal(await worker.evaluate(() => Zotero.Research.testStarts.length), starts);
-    assert.equal(paperRequests.length, requests, 'Do not read an unselected destination');
+    await panel.waitForFunction(() => document.querySelector('#paperChoices button > span').textContent !== 'Loading title…');
+    assert.ok(paperRequests.length > requests, 'Look up destination metadata before selection');
+    assert.equal(await panel.$eval('#paperChoices button > span', n => n.textContent), finalURL.pathname.split('/').pop(), 'An unselected PDF uses its filename without parsing its body');
+    assert.equal(await panel.$eval('#paperChoices button > small', n => n.textContent), finalURL.href, 'Show the resolved URL');
     await panel.locator('#paperChoices button').click();
     await panel.waitForFunction(() => !document.getElementById('paper').hidden || !document.getElementById('error').hidden, {timeout: 60000});
     assert.equal(await panel.$eval('#error', e => e.hidden ? '' : e.textContent), '');
@@ -177,6 +210,54 @@ try {
     assert.ok(saved.source.pdfURLs.includes(finalURL.href), 'The selected real PDF reaches the PDF extraction workflow');
   }
   console.log('PASS: titleless PDFs reach the backend in both Add modes, including redirects and URLs without a PDF suffix');
+
+  const titleCases = [
+    ['/short-link', 'A paper & its findings', '/title-citation'],
+    ['/title-social', 'Weightpedia: <Understanding> models', '/title-social'],
+    ['/title-page', 'Research resources', '/title-page'],
+    ['/title-refresh', 'Research resources', '/title-page'],
+    ['/title-loop', 'Title unavailable', '/title-loop'],
+    ['/title-failure', 'Title unavailable', '/title-failure'],
+    ['/title-missing', 'Title unavailable', '/title-missing']
+  ];
+  html = '<!doctype html><title>Twitter</title>' + post('101', titleCases.map(([path]) => {
+    const url = new URL(path, paperURL).href;
+    return `<a href="${url}">${url}</a>`;
+  }).join(' '));
+  ({panel} = await openPanel());
+  const beforeTitleChoices = await worker.evaluate(() => Zotero.Research.testStarts.length);
+  await panel.locator('#entry').click();
+  await panel.waitForSelector('#paperChoice:not([hidden])');
+  await panel.waitForFunction(() => [...document.querySelectorAll('#paperChoices button > span')].every(n => n.textContent !== 'Loading title…'));
+  const titles = await panel.$$eval('#paperChoices button', nodes => nodes.map(n => ({title: n.firstElementChild.textContent, url: n.lastElementChild.textContent, disabled: n.disabled})));
+  assert.deepEqual(titles, titleCases.map(([, title, path]) => ({title, url: new URL(path, paperURL).href, disabled: false})));
+  assert.equal(await worker.evaluate(() => Zotero.Research.testStarts.length), beforeTitleChoices, 'Title lookups never save an item');
+  assert.equal(await panel.evaluate(() => !!window.titleScriptRan), false, 'Fetched page scripts do not execute');
+  assert.ok(!paperRequests.some(r => r.url === '/unrequested-image'), 'Do not fetch pictures or other page resources for titles');
+  assert.equal(await panel.$$eval('#paperChoices script, #paperChoices img, #paperChoices understanding', nodes => nodes.length), 0, 'Titles render as plain text');
+  await mkdir(root + '/dist/research-ui-test', {recursive: true});
+  await page.screenshot({path: root + '/dist/research-ui-test/zotero-paper-choice-titles.png'});
+  await panel.locator('#paperChoices button:first-child').click();
+  await panel.waitForSelector('#paper:not([hidden])');
+  assert.equal(await worker.evaluate(() => Zotero.Research.testStarts.at(-1).source.url), new URL('/title-citation', paperURL).href, 'A titled redirect still imports the selected paper');
+  console.log('PASS: chooser shows citation, social or page titles above resolved URLs; unavailable titles remain selectable');
+
+  if (process.argv.includes('--live-paper-titles')) {
+    // Read only title metadata for the reported links; do not select or save anything.
+    html = '<!doctype html><title>Twitter</title>' + post('101', [
+      'https://lnkd.in/g_q7DVJ8', 'https://weightpedia.org/', 'https://lnkd.in/gT5RW4MS'
+    ].map(url => `<a href="${url}">${url}</a>`).join(' '));
+    ({panel} = await openPanel());
+    await panel.locator('#entry').click();
+    await panel.waitForSelector('#paperChoice:not([hidden])', {timeout: 60000});
+    await panel.waitForFunction(() => [...document.querySelectorAll('#paperChoices button > span')].every(n => n.textContent !== 'Loading title…'));
+    const choices = await panel.$$eval('#paperChoices button', nodes => nodes.map(n => ({title: n.firstElementChild.textContent, url: n.lastElementChild.textContent})));
+    assert.equal(choices.length, 2, 'Exclude the short link that resolves to X');
+    assert.ok(choices.every(c => !['Title unavailable', 'LinkedIn', c.url].includes(c.title)));
+    assert.ok(choices.some(c => new URL(c.url).hostname === 'transformer-circuits.pub'));
+    console.log('PASS: live screenshot links show destination titles:', JSON.stringify(choices));
+    await page.screenshot({path: root + '/dist/research-ui-test/zotero-paper-choice-live-titles.png'});
+  }
 
   html = '<!doctype html><title>Twitter</title>' + post('101', 'Our paper:',
     '<div data-testid="card.wrapper"><a href="https://arxiv.org/abs/2605.02105">arxiv.org Paper</a></div>')
@@ -252,8 +333,9 @@ try {
   assert.equal(await worker.evaluate(() => Zotero.Research.testOrdinary), 1);
   console.log('PASS: missing paper links show an error; the usual save workflow is unchanged');
 } catch (error) {
+  console.error(error);
   for (const page of await browser.pages()) for (const frame of page.frames()) {
-    if (frame.url().includes('/research/panel.html')) console.error('Panel at failure:', await frame.evaluate(() => ({text: document.body.innerText, busy, activeAction, job})));
+    if (frame.url().includes('/research/panel.html')) console.error('Panel at failure:', await frame.evaluate(() => ({text: document.body.innerText, busy, activeAction, job})).catch(e => e.message));
   }
   throw error;
 } finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }
