@@ -78,7 +78,9 @@ Zotero.Research = {
 			pending = {requestID: data.requestID, pageURL: tab.url, thread, candidates};
 			await browser.storage.session.set({[key]: pending});
 		}
-		const chosen = pending.candidates.find(c => c.url === data.paperURL);
+		const onlyLink = pending.candidates.length === 1 ? pending.candidates[0] : null;
+		const chosen = data.paperURL ? pending.candidates.find(c => c.url === data.paperURL)
+			: onlyLink && /^https:\/\/arxiv\.org\/abs\//.test(onlyLink.url) ? onlyLink : null;
 		if (!chosen) return {paperChoices: pending.candidates};
 		await this.progress(tab, 'Reading the linked paper’s metadata…');
 		const extracted = await this.extractPaper(chosen.url);
