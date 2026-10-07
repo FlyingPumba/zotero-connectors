@@ -16,6 +16,9 @@ pdf += 'xref\n0 4\n0000000000 65535 f \n' + offsets.slice(1).map(n => `${String(
 const paperRequests = [];
 const server = createServer((req, res) => {
   paperRequests.push({url: req.url, method: req.method});
+  if (req.url === '/') {
+    res.writeHead(302, {Location: '/downloads/identifying-intro-preprint.pdf'}); res.end(); return;
+  }
   if (req.url.startsWith('/downloads/') || req.url.startsWith('/download?')) {
     res.setHeader('Content-Type', 'application/pdf'); res.end(pdf); return;
   }
@@ -73,6 +76,10 @@ try {
     Zotero.Research.call = async (method, data) => {
       if (method === 'status') return {job: data.id ? Zotero.Research.testJob : null};
       if (method === 'start') {
+        // Match the native plugin's request validation, including the required title.
+        if (!['entry', 'pdf'].includes(data.mode) || !data.item?.title || !data.requestID) {
+          throw new Error('Incomplete paper request.');
+        }
         Zotero.Research.testStarts.push(data);
         return Zotero.Research.testJob = {id: data.requestID, mode: data.mode, title: data.item.title, url: data.source.url,
           status: 'ready', stage: 'Ready to discuss', summary: 'Summary of the paper.', existingCollections: [], availableCollections: [], messages: []};
@@ -145,8 +152,14 @@ try {
   assert.equal(await worker.evaluate(() => Zotero.Research.testStarts.at(-1).source.url), paperURL + '?v=2');
   console.log('PASS: ambiguous links offer a choice before saving; selection continues normally');
 
-  for (const [mode, path] of [['entry', '/downloads/paper.pdf'], ['pdf', '/download?id=123']]) {
+  for (const [mode, path, finalPath] of [
+    ['entry', '/downloads/paper.pdf', '/downloads/paper.pdf'],
+    ['pdf', '/download?id=123', '/download?id=123'],
+    ['entry', '/', '/downloads/identifying-intro-preprint.pdf'],
+    ['pdf', '/', '/downloads/identifying-intro-preprint.pdf']
+  ]) {
     const url = new URL(path, paperURL).href;
+    const finalURL = new URL(finalPath, paperURL);
     html = '<!doctype html><title>Twitter</title>' + post('101', `Our paper: <a href="${url}">Download</a>`);
     ({panel} = await openPanel());
     const starts = await worker.evaluate(() => Zotero.Research.testStarts.length), requests = paperRequests.length;
@@ -159,10 +172,11 @@ try {
     await panel.waitForFunction(() => !document.getElementById('paper').hidden || !document.getElementById('error').hidden, {timeout: 60000});
     assert.equal(await panel.$eval('#error', e => e.hidden ? '' : e.textContent), '');
     const saved = await worker.evaluate(() => Zotero.Research.testStarts.at(-1));
-    assert.equal(saved.mode, mode); assert.equal(saved.source.url, url);
-    assert.ok(saved.source.pdfURLs.includes(url), 'The selected real PDF reaches the PDF extraction workflow');
+    assert.equal(saved.mode, mode); assert.equal(saved.source.url, finalURL.href);
+    assert.equal(saved.item.title, finalURL.pathname.split('/').pop(), 'Titleless PDFs use the final URL filename');
+    assert.ok(saved.source.pdfURLs.includes(finalURL.href), 'The selected real PDF reaches the PDF extraction workflow');
   }
-  console.log('PASS: single-URL confirmation and real PDFs on arbitrary paths, including without a PDF suffix');
+  console.log('PASS: titleless PDFs reach the backend in both Add modes, including redirects and URLs without a PDF suffix');
 
   html = '<!doctype html><title>Twitter</title>' + post('101', 'Our paper:',
     '<div data-testid="card.wrapper"><a href="https://arxiv.org/abs/2605.02105">arxiv.org Paper</a></div>')
