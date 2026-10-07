@@ -10,6 +10,40 @@ async function call(action, data = {}) {
 	return result;
 }
 function error(e) { $('error').textContent = e.message; $('error').hidden = false; }
+async function describePaperChoice(choice, title, url) {
+	let response;
+	const linkLabel = choice.label?.trim();
+	const fallback = linkLabel && !/^(?:https?:\/\/|www\.)/i.test(linkLabel) ? linkLabel : 'Title unavailable';
+	try {
+		const options = {credentials: 'omit', signal: AbortSignal.timeout(20000)}, seen = new Set();
+		let target = choice.url;
+		while (true) {
+			response = await fetch(target, options);
+			url.textContent = response.url || target;
+			seen.add(target); seen.add(url.textContent);
+			if (!response.ok) throw new Error('Title lookup failed');
+			const type = response.headers.get('Content-Type') || '';
+			if (/application\/pdf/i.test(type)) {
+				// Titles are best-effort previews. Do not download an unselected PDF.
+				title.textContent = decodeURIComponent(new URL(url.textContent).pathname.split('/').pop()) || fallback;
+				return;
+			}
+			if (!/text\/html|application\/xhtml\+xml/i.test(type)) throw new Error('No page title');
+			const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
+			const refresh = doc.querySelector('meta[http-equiv="refresh" i]')?.content.match(/^\s*[\d.]+\s*;\s*url\s*=\s*(.*?)\s*$/i);
+			if (refresh) {
+				const next = new URL(refresh[1].replace(/^(['"])(.*)\1$/, '$2'), url.textContent);
+				if (['http:', 'https:'].includes(next.protocol) && !seen.has(next.href)) { target = next.href; continue; }
+			}
+			const pageTitle = ['meta[name="citation_title"]', 'meta[property="og:title"]', 'meta[name="twitter:title"]']
+				.map(selector => doc.querySelector(selector)?.content).concat(doc.title)
+				.find(value => value?.trim());
+			title.textContent = pageTitle?.replace(/\s+/g, ' ').trim() || fallback;
+			return;
+		}
+	} catch { title.textContent = fallback; }
+	finally { if (response?.body && !response.bodyUsed) await response.body.cancel().catch(() => {}); }
+}
 function markdownHTML(text, parser = mathMarkdown) {
 	return DOMPurify.sanitize(parser.parse(text || ''), {
 		ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'del', 'a', 'code', 'pre', 'blockquote', 'ul', 'ol', 'li',
@@ -194,11 +228,12 @@ async function act(action, data) {
 		if (result.paperChoices) {
 			$('actions').hidden = true; $('paperChoice').hidden = false; $('paperChoices').replaceChildren();
 			for (const choice of result.paperChoices) {
-				const button = document.createElement('button'), url = document.createElement('small');
-				button.className = 'secondary'; button.textContent = choice.label;
-				url.textContent = choice.url; button.append(url);
+				const button = document.createElement('button'), title = document.createElement('span'), url = document.createElement('small');
+				button.className = 'secondary'; title.textContent = 'Loading title…';
+				url.textContent = choice.url; button.append(title, url);
 				button.onclick = () => act('start', {...data, paperURL: choice.url});
 				$('paperChoices').append(button);
+				describePaperChoice(choice, title, url);
 			}
 			return;
 		}
