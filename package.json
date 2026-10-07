@@ -33,7 +33,7 @@
   },
   "scripts": {
     "test": "mocha",
-    "test:research": "bash build.sh -p b -d && node scripts/test-research-toolbar.mjs && node scripts/test-research-panel.mjs && node scripts/test-research-twitter.mjs && node scripts/test-research-settings.mjs",
+    "test:research": "bash build.sh -p b -d && node scripts/test-research-toolbar.mjs && node scripts/test-research-panel.mjs && node scripts/test-research-twitter.mjs && node scripts/test-research-lesswrong.mjs && node scripts/test-research-settings.mjs",
     "update-single-file": "scripts/update-single-file"
   }
 }
