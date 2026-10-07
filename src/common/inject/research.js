@@ -31,7 +31,8 @@ if (Zotero.isManifestV3 && window.top === window) {
 			const citationPDFSource = document.querySelector('meta[name="citation_pdf_url"]')?.content;
 			if (citationPDFSource) source.pdfURLs.push(new URL(citationPDFSource, location.href).href);
 			if (/^(www\.)?arxiv\.org$/.test(location.hostname) && location.pathname.startsWith('/abs/')) source.pdfURLs.push('https://arxiv.org/pdf/' + location.pathname.slice(5));
-			if (/\.pdf(?:$|[?#])/i.test(location.href) || document.contentType === 'application/pdf') source.pdfURLs.push(location.href);
+			const isPDF = /\.pdf(?:$|[?#])/i.test(location.href) || document.contentType === 'application/pdf';
+			if (isPDF) source.pdfURLs.push(location.href);
 			if (!message.metadata) return {source};
 			let item;
 			if (message.detect) await Zotero.PageSaving.onPageLoad();
@@ -43,7 +44,10 @@ if (Zotero.isManifestV3 && window.top === window) {
 			} else if (translators?.[0]?.itemType === 'multiple') {
 				throw new Error('Open an individual paper to summarize it. Save to Zotero is still available for lists of papers.');
 			} else {
-				item = {itemType: 'webpage', title: document.title, url: location.href, accessDate: new Date().toISOString(),
+				// Chrome's PDF viewer can have no document title. Use the final URL's
+				// filename, as the standard standalone attachment workflow does.
+				const title = document.title || (isPDF ? location.pathname.split('/').pop() || location.href : '');
+				item = {itemType: 'webpage', title, url: location.href, accessDate: new Date().toISOString(),
 					creators: [], tags: [], attachments: []};
 			}
 			if (!item) throw new Error('The translator did not return a paper.');
