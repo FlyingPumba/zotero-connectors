@@ -18,13 +18,17 @@ try {
     else request.abort();
   });
   const url = 'https://www.lesswrong.com/posts/research-fixture/hidden-post';
-  async function extract(sourceURL = url) {
+  async function extract(sourceURL = url, translatedItem) {
     await page.goto(sourceURL);
-    return worker.evaluate(async sourceURL => {
+    return worker.evaluate(async ({sourceURL, translatedItem}) => {
       const tab = (await browser.tabs.query({url: sourceURL}))[0];
       await Zotero.Connector_Browser.injectTranslationScripts(tab);
-      return browser.tabs.sendMessage(tab.id, {research: 'extract', metadata: false}, {frameId: 0});
-    }, sourceURL);
+      if (translatedItem) await browser.scripting.executeScript({target: {tabId: tab.id}, args: [translatedItem], func: item => {
+        Zotero.PageSaving = {translators: [{itemType: item.itemType}], _initTranslate: async () => ({})};
+        Zotero.TranslateWeb.translate = async () => ({items: [item]});
+      }});
+      return browser.tabs.sendMessage(tab.id, {research: 'extract', metadata: !!translatedItem}, {frameId: 0});
+    }, {sourceURL, translatedItem});
   }
   const article = '<div id="postContent"><h1>TL;DR</h1><p>First paragraph with <em>emphasis</em>.</p>'
     + '<h2>Methods</h2><ul><li>First method</li><li>Second method</li></ul>'
@@ -51,6 +55,26 @@ try {
   assert.equal((await extract('https://www.lesswrong.com/')).source.pageText, 'Other page text.', 'Preserve non-post pages');
   console.log('PASS: LessWrong extraction reads hidden article text, preserves structure, excludes page clutter, and rejects missing post content');
 
+  const names = ['camilablank', 'agam_bhatia', 'Euan Ong', 'Neel Nanda'];
+  const authors = names.map(lastName => ({lastName, creatorType: 'author', fieldMode: 1}));
+  // Preserve a translator's structured name and non-author creators too.
+  authors[2] = {firstName: 'Euan', lastName: 'Ong', creatorType: 'author'};
+  const editor = {lastName: 'Fixture editor', creatorType: 'editor', fieldMode: 1};
+  const translated = {itemType: 'forumPost', title: 'Research fixture', date: '2026-09-23', forumTitle: 'LessWrong', url,
+    creators: [...authors.slice(1), editor], tags: ['Interpretability'], attachments: []};
+  const metas = names.map(name => `<meta name="citation_author" content="${name}">`).join('');
+  html = '<!doctype html><title>Research fixture</title>' + metas + '<body><div hidden>' + article + '</div>';
+  const repaired = (await extract(url, translated)).item;
+  assert.deepEqual(repaired, {...translated, creators: [...authors, editor]}, 'Restore the primary author in byline order and preserve other metadata');
+  assert.deepEqual((await extract(url, repaired)).item, repaired, 'Do not duplicate authors when the translator already supplies the complete list');
+  assert.deepEqual((await extract(url + '?commentId=comment', translated)).item, translated, 'Do not apply post authors to a comment');
+  assert.deepEqual((await extract('https://example.org/paper', translated)).item, translated, 'Do not change authors for other sites');
+  html = '<!doctype html><title>Research fixture</title><body>' + article;
+  assert.deepEqual((await extract(url, translated)).item, translated, 'Preserve translated authors when citation metadata is absent');
+  html = '<!doctype html><title>Research fixture</title><meta name="citation_author" content="camilablank"><body>' + article;
+  assert.deepEqual((await extract(url, {...translated, creators: []})).item.creators, [authors[0]], 'Handle single-author posts too');
+  console.log('PASS: LessWrong imports include the primary author and coauthors in order, without dropping or duplicating existing creators');
+
   if (process.argv.includes('--live-lesswrong')) {
     const sourceURL = 'https://www.lesswrong.com/posts/Zeg2JztbdhguL48uH/workspacebench-evaluating-interpretability-methods-for-the';
     const result = await worker.evaluate(url => Zotero.Research.extractPaper(url), sourceURL);
@@ -59,7 +83,7 @@ try {
     assert.ok(result.source.pageText.startsWith('TL;DR'));
     assert.ok(result.source.pageText.length > 25000);
     for (const section of ['3,356', 'Introduction', 'Grading', 'Appendix']) assert.ok(result.source.pageText.includes(section), section);
-    assert.ok(result.item.creators.length > 0, 'Keep Zotero metadata translation');
+    assert.deepEqual(result.item.creators.map(creator => [creator.firstName, creator.lastName].filter(Boolean).join(' ')), names, 'Import the complete live byline in order');
     console.log(`PASS: real inactive-tab import captures ${result.source.pageText.length} characters and ${result.item.creators.length} authors from WorkspaceBench`);
   }
 } finally { await browser.close(); }
