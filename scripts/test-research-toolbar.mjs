@@ -110,7 +110,7 @@ try {
       if (method === 'start') {
         Zotero.Research.pdfStarts.push(data);
         return Zotero.Research.pdfJob = {id: data.requestID, title: data.item.title, status: 'ready',
-          stage: 'Ready to discuss', summary: 'A test summary.', messages: [], existingCollections: [], availableCollections: []};
+          stage: 'Ready to discuss', summary: data.mode === 'categorize' ? '' : 'A test summary.', messages: [], existingCollections: [], availableCollections: []};
       }
       throw new Error('Unexpected test backend method: ' + method);
     };
@@ -119,7 +119,7 @@ try {
     };
   });
   const base = new URL(url).origin;
-  const cases = [['entry', base + '/paper.pdf'], ['pdf', base + '/download?id=123'], ['ordinary', base + '/paper.pdf']];
+  const cases = [['entry', base + '/paper.pdf'], ['pdf', base + '/download?id=123'], ['categorize', base + '/paper.pdf'], ['ordinary', base + '/paper.pdf']];
   if (process.argv.includes('--live-pdf')) cases.push(['entry', 'https://www.bu.edu/teaching-writing/files/2020/03/Sentence-Clarity-Script.pdf']);
   for (const [mode, pdfURL] of cases) {
     const pdfPage = await browser.newPage();
