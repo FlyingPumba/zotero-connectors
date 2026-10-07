@@ -56,6 +56,21 @@ Zotero.Research = {
 		}
 		return [...candidates.values()];
 	},
+	async paperChoicePage({url, deadline}) {
+		const target = new URL(url);
+		if (!['http:', 'https:'].includes(target.protocol)) throw new Error('Unsupported title URL');
+		// Fetch outside the panel's HTTPS embedding page so HTTP destinations work
+		// under the connector's existing host permissions without mixed content.
+		const response = await fetch(target.href, {credentials: 'omit', signal: AbortSignal.timeout(Math.max(0, deadline - Date.now()))});
+		try {
+			const type = response.headers.get('Content-Type') || '';
+			const html = response.ok && /text\/html|application\/xhtml\+xml/i.test(type) ? await response.text() : undefined;
+			return {url: response.url || target.href, ok: response.ok, type, html};
+		} finally {
+			// Unselected PDFs and other resources need only their headers.
+			if (response.body && !response.bodyUsed) await response.body.cancel().catch(() => {});
+		}
+	},
 	async extractPaper(url, metadata = true) {
 		const tab = await browser.tabs.create({url, active: false});
 		try {
@@ -119,6 +134,7 @@ browser.runtime.onMessage.addListener((message, sender) => {
 		await Zotero.initDeferred.promise;
 		const tab = await browser.tabs.get(sender.tab.id);
 		const data = message.data || {};
+		if (message.action === 'paperChoicePage') return Zotero.Research.paperChoicePage(data);
 		if (message.action === 'resize') return browser.tabs.sendMessage(tab.id, {research: 'resize', height: data.height, expanded: data.expanded}, {frameId: 0});
 		if (message.action === 'close') return browser.tabs.sendMessage(tab.id, {research: 'hide'}, {frameId: 0});
 		if (message.action === 'ordinary') {
