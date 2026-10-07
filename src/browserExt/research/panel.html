@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Add &amp; Summarize</title><link rel="stylesheet" href="panel.css"></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Add &amp; Summarize</title><link rel="stylesheet" href="../lib/katex/katex.min.css"><link rel="stylesheet" href="panel.css"></head>
 <body>
 <header><div><span class="eyebrow">ZOTERO RESEARCH</span><h1 id="title" hidden></h1></div><button id="close" class="icon" aria-label="Close">×</button></header>
 <main>
@@ -20,5 +20,5 @@
   <section id="chat" hidden><h2>Discussion</h2><div id="messages" aria-live="polite"></div><div id="partial" class="markdown"></div><form id="chatForm"><textarea id="question" aria-label="Ask about the paper" rows="2" placeholder="What is the key insight behind the method?"></textarea><button id="send" type="submit">Send</button></form></section>
 </main>
 <footer id="footer" hidden><details id="session" hidden><summary>Codex session</summary><div class="session-command"><code id="sessionCommand"></code><button id="copySession" class="secondary">Copy command</button></div><span id="copyStatus" class="hint" role="status"></span></details></footer>
-<script src="../browser-polyfill.js"></script><script src="../lib/marked.js"></script><script src="../lib/dompurify.js"></script><script src="panel.js"></script>
+<script src="../browser-polyfill.js"></script><script src="../lib/marked.js"></script><script src="../lib/dompurify.js"></script><script src="../lib/katex/katex.min.js"></script><script src="math.js"></script><script src="panel.js"></script>
 </body></html>
