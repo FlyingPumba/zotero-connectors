@@ -69,6 +69,21 @@ if (Zotero.isManifestV3 && window.top === window) {
 					creators: [], tags: [], attachments: []};
 			}
 			if (!item) throw new Error('The translator did not return a paper.');
+			if (/(^|\.)lesswrong\.com$/.test(location.hostname) && location.pathname.startsWith('/posts/')
+				&& !new URL(location.href).searchParams.has('commentId')) {
+				// ForumMagnum can return coauthors without the primary author. The
+				// page's citation metadata contains the full byline in display order.
+				const names = [...document.querySelectorAll('meta[name="citation_author"]')].map(node => node.content.trim()).filter(Boolean);
+				if (names.length) {
+					const remaining = [...(item.creators || [])];
+					const authors = names.map(name => {
+						const index = remaining.findIndex(creator => creator.creatorType === 'author'
+							&& [creator.firstName, creator.lastName].filter(Boolean).join(' ') === name);
+						return index < 0 ? {lastName: name, creatorType: 'author', fieldMode: 1} : remaining.splice(index, 1)[0];
+					});
+					item.creators = [...authors, ...remaining];
+				}
+			}
 			for (const attachment of item.attachments || []) {
 				if ((attachment.mimeType || attachment.contentType) === 'application/pdf' && attachment.url) {
 					source.pdfURLs.push(new URL(attachment.url, location.href).href);
