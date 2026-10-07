@@ -140,6 +140,7 @@ browser.runtime.onMessage.addListener((message, sender) => {
 		if (message.action === 'ordinary') {
 			const info = Zotero.Connector_Browser.getTabInfo(tab.id);
 			if (info.translators?.length) await Zotero.Connector_Browser.saveWithTranslator(tab, 0, {fallbackOnFailure: true});
+			else if (info.isPDF) await Zotero.Connector_Browser.saveAsWebpage(tab, info.frameId, {snapshot: true});
 			else await Zotero.Connector_Browser.saveAsWebpage(tab, 0, {snapshot: Zotero.Connector.isOnline
 				? Zotero.Connector.prefs.automaticSnapshots : Zotero.Prefs.get('automaticSnapshots')});
 			return {ok: true};

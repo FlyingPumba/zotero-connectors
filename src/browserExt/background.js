@@ -1161,7 +1161,9 @@ Zotero.Connector_Browser = new function() {
 				Zotero.Connector_Browser._updateExtensionUI(tab);
 			});
 		}
-		else if (Zotero.isManifestV3 && !tabInfo.isPDF && /^https?:/.test(tab.url)) {
+		// Direct PDF tabs support the research panel too. Keep the existing
+		// frame-specific save path for PDFs embedded in another page.
+		else if (Zotero.isManifestV3 && (!tabInfo.isPDF || !tabInfo.frameId) && /^https?:/.test(tab.url)) {
 			await Zotero.Research.show(tab);
 		}
 		else if(tabInfo.translators && tabInfo.translators.length) {
