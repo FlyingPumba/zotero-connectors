@@ -1,6 +1,7 @@
 /* global browser, marked, DOMPurify, mathMarkdown, typesetMath, textMath */
 const $ = id => document.getElementById(id);
 let job, busy = false, timer, requestID = crypto.randomUUID(), approvalID, messageSnapshot, actionStartedAt, activeAction, categorySnapshot, categoryBusy = false;
+let panelMode = 'floating', minimizedScrollY = 0;
 browser.runtime.onMessage.addListener(message => {
 	if (message?.research === 'preparing' && busy && activeAction === 'start') $('status').textContent = message.stage;
 });
@@ -202,6 +203,8 @@ function updateActivity() {
 }
 function render(next) {
 	job = next;
+	$('restoreTitle').textContent = job?.title || 'Zotero Research';
+	$('restore').title = job?.title || 'Open docked panel';
 	$('actions').hidden = !!job;
 	$('footer').hidden = !job;
 	const expanded = !!job && (['ready', 'chatting', 'summarizing'].includes(job.status) || !!job.summary);
@@ -297,6 +300,9 @@ async function act(action, data) {
 $('entry').onclick = () => act('start', {mode: 'entry', requestID});
 $('pdf').onclick = () => act('start', {mode: 'pdf', requestID});
 $('close').onclick = () => call('close').catch(error);
+$('dock').onclick = () => setPanelMode(panelMode === 'docked' ? 'floating' : 'docked');
+$('minimize').onclick = () => setPanelMode('minimized');
+$('restore').onclick = () => setPanelMode('docked');
 $('ordinary').onclick = () => call('ordinary').then(() => call('close')).catch(error);
 $('approve').onclick = () => act('approve', {id: job.id, selected: [...$('proposals').querySelectorAll('input:checked')].map(input => Number(input.value))});
 $('skip').onclick = () => act('approve', {id: job.id, selected: []});
@@ -330,13 +336,35 @@ $('copySession').onclick = async () => {
 	catch (e) { $('copyStatus').textContent = e.message; }
 };
 let lastSize;
-new ResizeObserver(() => {
+function resizePanel() {
 	const height = Math.ceil(document.body.getBoundingClientRect().height);
 	const expanded = document.body.classList.contains('results');
-	const size = `${height}:${expanded}`;
+	const size = `${height}:${expanded}:${panelMode}`;
 	if (size === lastSize) return;
 	lastSize = size;
-	call('resize', {height, expanded}).catch(console.error);
-}).observe(document.body);
+	return call('resize', {height, expanded, mode: panelMode});
+}
+async function setPanelMode(mode) {
+	const scrollY = panelMode === 'minimized' ? minimizedScrollY : window.scrollY;
+	if (mode === 'minimized') minimizedScrollY = scrollY;
+	panelMode = mode;
+	document.body.dataset.mode = mode;
+	const minimized = mode === 'minimized';
+	$('panelHeading').hidden = minimized;
+	$('restore').hidden = !minimized;
+	$('dock').hidden = minimized;
+	$('minimize').hidden = mode !== 'docked';
+	const dockLabel = mode === 'docked' ? 'Return to centered view' : 'Dock panel';
+	$('dock').setAttribute('aria-label', dockLabel);
+	$('dock').title = dockLabel;
+	try {
+		await resizePanel();
+		requestAnimationFrame(() => {
+			(minimized ? $('restore') : $('dock')).focus({preventScroll: true});
+			window.scrollTo(0, minimized ? 0 : scrollY);
+		});
+	} catch (e) { error(e); }
+}
+new ResizeObserver(() => { resizePanel()?.catch(console.error); }).observe(document.body);
 setInterval(updateActivity, 1000);
 refresh(true);

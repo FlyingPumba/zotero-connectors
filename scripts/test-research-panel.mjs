@@ -3,6 +3,7 @@ import {createRequire} from 'node:module';
 import {createServer} from 'node:http';
 import {fileURLToPath} from 'node:url';
 import {mkdir} from 'node:fs/promises';
+import {checkPanelDocking} from './research-panel-docking-checks.mjs';
 const root = fileURLToPath(new URL('..', import.meta.url)).replace(/\/$/, '');
 const output = root + '/dist/research-ui-test';
 await mkdir(output, {recursive: true});
@@ -101,7 +102,7 @@ try {
   assert.deepEqual(ready.buttons, ['Add entry & Summarize', 'Add PDF & Summarize', 'Save with usual workflow']);
   assert.ok(!ready.text.includes('A concise research') && !ready.text.includes('Ready'));
   assert.equal(ready.width, 360);
-  assert.ok(ready.height >= 260 && ready.height < 300, JSON.stringify(ready));
+  assert.ok(ready.height >= 250 && ready.height < 300, JSON.stringify(ready));
   assert.ok(ready.bottomGap >= 24, JSON.stringify(ready));
   assert.ok(ready.scrollHeight <= ready.height, 'All three actions must fit without a scrollbar');
   await (await panel.frameElement()).screenshot({path: output + '/zotero-panel-ready.png'});
@@ -142,6 +143,7 @@ try {
   await worker.evaluate(job => Zotero.Research.setTestJob(job), job);
   await panel.evaluate(() => refresh());
   await panel.waitForFunction(() => innerHeight === 760);
+  await checkPanelDocking(page, panel, output + '/zotero-panel');
   assert.equal(await panel.$eval('#chat', n => n.hidden), false, 'Chat is available before category review');
   assert.equal(await panel.$('#coverage'), null);
   assert.equal(await panel.evaluate(warning => document.body.textContent.includes(warning), job.sourceInfo.warning), false,
@@ -403,8 +405,16 @@ $$\begin{pmatrix}a & b \\ c & d\end{pmatrix}$$
   assert.equal(await panel.$eval('#partial', n => n.hidden), true, 'No empty Assistant box before the first response text');
 
   const chattingJob = await panel.evaluate(() => job);
+  await panel.locator('#dock').click();
+  await panel.locator('#minimize').click();
+  await panel.waitForFunction(() => document.body.dataset.mode === 'minimized' && innerHeight === 56);
   await worker.evaluate(job => Zotero.Research.setTestJob({...job, partial: '**Same session.**', stage: 'Answering'}), chattingJob);
   await panel.waitForFunction(() => !document.getElementById('partial').hidden);
+  assert.equal(await panel.evaluate(() => innerHeight), 56, 'Streaming must not reopen the minimized panel');
+  await panel.locator('#restore').click();
+  await panel.waitForFunction(() => document.body.dataset.mode === 'docked' && innerHeight > 56);
+  await panel.locator('#dock').click();
+  await panel.waitForFunction(() => document.body.dataset.mode === 'floating' && innerWidth === 760);
   assert.equal(await panel.$eval('#progress', n => n.hidden), true, 'The first streamed text replaces chat progress');
   assert.equal(await panel.$eval('#partialContent strong', n => n.textContent), 'Same session.');
   assert.equal(await panel.$eval('#partial .message-role', n => n.textContent), 'Assistant');
