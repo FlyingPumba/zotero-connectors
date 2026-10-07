@@ -42,8 +42,11 @@ const server = createServer((req, res) => {
   res.end('<!doctype html><title>Linked research paper</title><meta name="citation_title" content="Linked research paper"><meta name="citation_author" content="Researcher, A"><h1>Linked research paper</h1><p>The paper, not the Twitter post.</p>');
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-const paperURL = `http://127.0.0.1:${server.address().port}/paper.pdf`;
-const browser = await puppeteer.launch({headless: true, pipe: true, channel: 'chrome', enableExtensions: [root + '/build/manifestv3']});
+// A non-loopback HTTP origin is necessary to exercise mixed-content rules in
+// the research panel embedded inside the HTTPS Twitter page.
+const paperURL = `http://research-paper.test:${server.address().port}/paper.pdf`;
+const browser = await puppeteer.launch({headless: true, pipe: true, channel: 'chrome',
+  args: ['--host-resolver-rules=MAP research-paper.test 127.0.0.1'], enableExtensions: [root + '/build/manifestv3']});
 const post = (id, text, extra = '', author = 'researcher') => `<article data-testid="tweet"><div data-testid="User-Name"><a href="/${author}">${author}</a><a href="/${author}">@${author}</a><a href="/${author}/status/${id}"><time datetime="2026-10-06T10:00:00Z">Oct 6</time></a></div><div data-testid="tweetText">${text}</div>${extra}</article>`;
 const card = `<div data-testid="card.wrapper"><a href="https://t.co/paper">arxiv.org<br>Linked research paper</a></div>`;
 const photo = `<div data-testid="tweetPhoto"><img alt="Result chart" src="https://pbs.twimg.com/media/test?format=png&name=medium"></div>`;
@@ -76,6 +79,9 @@ try {
     Zotero.Research.testLinkRequests = []; Zotero.Research.testStarts = []; Zotero.Research.testOrdinary = 0;
     Zotero.Research.testRedirectMode = 'html';
     self.fetch = async (url, options) => {
+      if (['https://github.com/example/code', 'https://arxiv.org/abs/2605.02105'].includes(url)) {
+        return new Response('<title>Linked resource</title>', {headers: {'Content-Type': 'text/html'}});
+      }
       if (['https://lnkd.in/social', 'https://lnkd.in/paper'].includes(url)) {
         const target = url.endsWith('/social') ? 'https://x.com/researcher/status/101' : paperURL + '?a=1&b=2';
         return {url, headers: new Headers({'Content-Type': 'text/html'}),
@@ -115,13 +121,15 @@ try {
   'Follow LinkedIn landing pages (including t.co chains), decode URL entities, deduplicate and exclude X destinations');
   await worker.evaluate(() => { Zotero.Research.testLinkRequests = []; });
   const page = await browser.newPage();
+  const securityErrors = [], cdp = await page.createCDPSession();
+  cdp.on('Log.entryAdded', ({entry}) => { if (entry.source === 'security') securityErrors.push(entry.text); });
+  await cdp.send('Log.enable');
   await page.setRequestInterception(true);
   let html = '<!doctype html><title>Twitter thread</title>' + first + second
     + post('201', 'Unrelated reply with a paper', card, 'someone_else') + post('103', 'Author responding to that reply', card);
   page.on('request', req => {
     if (req.isNavigationRequest() && req.url().startsWith('https://x.com/')) req.respond({status: 200, contentType: 'text/html', body: html});
     else if (req.url().startsWith('https://pbs.twimg.com/')) req.respond({status: 200, contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aRDsAAAAASUVORK5CYII=', 'base64')});
-    else if (['https://github.com/example/code', 'https://arxiv.org/abs/2605.02105'].includes(req.url())) req.respond({status: 200, contentType: 'text/html', body: '<title>Linked resource</title>'});
     else req.continue();
   });
   async function openPanel(url = 'https://x.com/researcher/status/101') {
@@ -141,7 +149,9 @@ try {
     await panel.waitForSelector('#paperChoice:not([hidden])');
     assert.equal(await worker.evaluate(() => Zotero.Research.testStarts.length), count, 'A labelled paper card still requires a choice');
     assert.equal(await panel.$$eval('#paperChoices button', nodes => nodes.length), 2, 'Include the code URL too');
-    await panel.waitForFunction(() => document.querySelector('#paperChoices button:nth-child(2) > span').textContent === 'Linked research paper');
+    await panel.waitForFunction(() => document.querySelector('#paperChoices button:nth-child(2) > span').textContent !== 'Loading title…');
+    assert.deepEqual(securityErrors.filter(text => /mixed content/i.test(text)), [], 'HTTP title lookups must not trigger mixed-content errors');
+    assert.equal(await panel.$eval('#paperChoices button:nth-child(2) > span', n => n.textContent), 'Linked research paper');
     assert.equal(await panel.$eval('#paperChoices button:nth-child(2) > small', n => n.textContent), paperURL);
     await panel.locator('#paperChoices button:nth-child(2)').click();
     await panel.waitForFunction(() => !document.getElementById('paper').hidden || !document.getElementById('error').hidden, {timeout: 60000});
@@ -245,7 +255,7 @@ try {
   if (process.argv.includes('--live-paper-titles')) {
     // Read only title metadata for the reported links; do not select or save anything.
     html = '<!doctype html><title>Twitter</title>' + post('101', [
-      'https://lnkd.in/g_q7DVJ8', 'https://weightpedia.org/', 'https://lnkd.in/gT5RW4MS'
+      'https://lnkd.in/g_q7DVJ8', 'http://weightpedia.org/individual-parameters-in-sparse-transformers/', 'https://lnkd.in/gT5RW4MS'
     ].map(url => `<a href="${url}">${url}</a>`).join(' '));
     ({panel} = await openPanel());
     await panel.locator('#entry').click();
@@ -255,6 +265,7 @@ try {
     assert.equal(choices.length, 2, 'Exclude the short link that resolves to X');
     assert.ok(choices.every(c => !['Title unavailable', 'LinkedIn', c.url].includes(c.title)));
     assert.ok(choices.some(c => new URL(c.url).hostname === 'transformer-circuits.pub'));
+    assert.deepEqual(securityErrors.filter(text => /mixed content/i.test(text)), [], 'The reported HTTP Weightpedia URL must also avoid mixed-content errors');
     console.log('PASS: live screenshot links show destination titles:', JSON.stringify(choices));
     await page.screenshot({path: root + '/dist/research-ui-test/zotero-paper-choice-live-titles.png'});
   }
@@ -332,6 +343,8 @@ try {
   await worker.waitForFunction(() => Zotero.Research.testOrdinary === 1);
   assert.equal(await worker.evaluate(() => Zotero.Research.testOrdinary), 1);
   console.log('PASS: missing paper links show an error; the usual save workflow is unchanged');
+  const translatorErrors = (await worker.evaluate(() => Zotero.Errors.getErrors())).filter(error => /Cannot read properties of (?:null|undefined)/.test(error));
+  assert.deepEqual(translatorErrors, [], 'No null/undefined translator errors during the chooser and import flows');
 } catch (error) {
   console.error(error);
   for (const page of await browser.pages()) for (const frame of page.frames()) {

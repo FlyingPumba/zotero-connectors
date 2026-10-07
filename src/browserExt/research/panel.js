@@ -11,25 +11,24 @@ async function call(action, data = {}) {
 }
 function error(e) { $('error').textContent = e.message; $('error').hidden = false; }
 async function describePaperChoice(choice, title, url) {
-	let response;
 	const linkLabel = choice.label?.trim();
 	const fallback = linkLabel && !/^(?:https?:\/\/|www\.)/i.test(linkLabel) ? linkLabel : 'Title unavailable';
 	try {
-		const options = {credentials: 'omit', signal: AbortSignal.timeout(20000)}, seen = new Set();
+		const deadline = Date.now() + 20000, seen = new Set();
 		let target = choice.url;
 		while (true) {
-			response = await fetch(target, options);
+			const response = await call('paperChoicePage', {url: target, deadline});
 			url.textContent = response.url || target;
 			seen.add(target); seen.add(url.textContent);
 			if (!response.ok) throw new Error('Title lookup failed');
-			const type = response.headers.get('Content-Type') || '';
+			const type = response.type;
 			if (/application\/pdf/i.test(type)) {
 				// Titles are best-effort previews. Do not download an unselected PDF.
 				title.textContent = decodeURIComponent(new URL(url.textContent).pathname.split('/').pop()) || fallback;
 				return;
 			}
 			if (!/text\/html|application\/xhtml\+xml/i.test(type)) throw new Error('No page title');
-			const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
+			const doc = new DOMParser().parseFromString(response.html, 'text/html');
 			const refresh = doc.querySelector('meta[http-equiv="refresh" i]')?.content.match(/^\s*[\d.]+\s*;\s*url\s*=\s*(.*?)\s*$/i);
 			if (refresh) {
 				const next = new URL(refresh[1].replace(/^(['"])(.*)\1$/, '$2'), url.textContent);
@@ -42,7 +41,6 @@ async function describePaperChoice(choice, title, url) {
 			return;
 		}
 	} catch { title.textContent = fallback; }
-	finally { if (response?.body && !response.bodyUsed) await response.body.cancel().catch(() => {}); }
 }
 function markdownHTML(text, parser = mathMarkdown) {
 	return DOMPurify.sanitize(parser.parse(text || ''), {
