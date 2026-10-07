@@ -27,25 +27,23 @@ Zotero.Research = {
 		const resolved = new Map();
 		for (const post of thread.posts) {
 			for (const link of post.links) {
-				let url = new URL(link.url), pdf = /\.pdf(?:$|[?#])/i.test(url.href);
-				const primary = link.card && /(?:^|\n)Paper:\s*$|(?:check out|read) (?:our|the) paper|(?:our|the) paper (?:is |here)/i.test(post.text);
+				let url = new URL(link.url);
+				if (!['http:', 'https:'].includes(url.protocol)) continue;
 				if (url.hostname === 't.co') {
-					// Only resolve links presented as papers; code, profiles, and other
-					// resources remain links in the saved note.
-					if (!primary && !/arxiv\.org|\.pdf\b|openreview\.net\/pdf/i.test(link.label)) continue;
+					// Expand short URLs for the chooser without reading linked pages.
+					// An unavailable redirect remains selectable as its original URL.
 					if (!resolved.has(url.href)) {
-						resolved.set(url.href, await this.resolveTwitterLink(url.href));
+						resolved.set(url.href, await this.resolveTwitterLink(url.href).catch(() => ({url: url.href})));
 					}
 					const target = resolved.get(url.href);
-					url = new URL(target.url); pdf = target.pdf || /\.pdf(?:$|[?#])/i.test(url.href);
+					url = new URL(target.url);
 				}
+				if (!['http:', 'https:'].includes(url.protocol)) continue;
 				const arxiv = /^(?:www\.|export\.)?arxiv\.org$/.test(url.hostname)
 					&& url.pathname.match(/^\/(?:abs|pdf|html)\/([^?#]+?)(?:\.pdf)?\/?$/);
-				if (!arxiv && !pdf) continue;
 				if (arxiv) url = new URL('https://arxiv.org/abs/' + arxiv[1]);
 				url.hash = '';
-				const old = candidates.get(url.href);
-				if (!old || primary) candidates.set(url.href, {url: url.href, label: link.label || url.href, primary: primary || old?.primary || false});
+				if (!candidates.has(url.href)) candidates.set(url.href, {url: url.href, label: link.label || url.href});
 			}
 		}
 		return [...candidates.values()];
@@ -74,15 +72,13 @@ Zotero.Research = {
 			await this.progress(tab, 'Reading Twitter thread…');
 			const thread = await browser.tabs.sendMessage(tab.id, {research: 'twitter'}, {frameId: 0});
 			if (!thread || thread.error) throw new Error(thread?.error || 'Could not read the Twitter thread.');
-			await this.progress(tab, 'Finding the paper linked in the thread…');
+			await this.progress(tab, 'Reading the URLs linked in the thread…');
 			const candidates = await this.paperLinks(thread);
-			if (!candidates.length) throw new Error('No arXiv or PDF link was found in the author’s thread.');
+			if (!candidates.length) throw new Error('No URL was found in the author’s thread. Open a thread with a link to the paper, then try again.');
 			pending = {requestID: data.requestID, pageURL: tab.url, thread, candidates};
 			await browser.storage.session.set({[key]: pending});
 		}
-		const primary = pending.candidates.filter(c => c.primary);
-		const chosen = data.paperURL ? pending.candidates.find(c => c.url === data.paperURL)
-			: pending.candidates.length === 1 ? pending.candidates[0] : primary.length === 1 ? primary[0] : null;
+		const chosen = pending.candidates.find(c => c.url === data.paperURL);
 		if (!chosen) return {paperChoices: pending.candidates};
 		await this.progress(tab, 'Reading the linked paper’s metadata…');
 		const extracted = await this.extractPaper(chosen.url);
