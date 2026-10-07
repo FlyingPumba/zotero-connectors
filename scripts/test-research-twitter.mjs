@@ -330,6 +330,49 @@ try {
   assert.equal(await page.evaluate(() => scrollY), 0, 'Restore the original scroll position');
   console.log('PASS: lazy continuation is captured, same-author recommendations excluded, and scroll position restored');
 
+  // The reported AuditBench thread has a quote timestamp before its own
+  // permalink, a hidden progress bar, and empty space after the final post.
+  for (const linkedQuote of [false, true]) {
+    const quoteTime = '<time datetime="2026-03-10T19:20:33Z">Mar 10</time>';
+    html = '<!doctype html><title>Twitter thread</title><article data-testid="tweet">'
+      + '<div data-testid="User-Name"><a href="/researcher">Researcher</a></div>'
+      + '<div data-testid="tweetText">Using AuditBench? Here is our update.</div>'
+      + '<div role="link"><div data-testid="User-Name">Quoted author</div>'
+      + (linkedQuote ? `<a href="/quoted/status/99">${quoteTime}</a>` : quoteTime)
+      + '<div data-testid="tweetText">Original AuditBench announcement</div></div>'
+      + '<a href="/researcher/status/101"><time datetime="2026-10-02T13:23:19Z">Oct 2</time></a>'
+      + '<div role="progressbar" style="visibility:hidden;height:3px"></div></article>'
+      + Array.from({length: 9}, (_, i) => post(String(102 + i), i === 6 ? 'Paper:' : `Update ${i + 2}`, i === 6 ? card : '')).join('')
+      + '<div style="display:none"><div role="progressbar"></div></div><div style="height:1800px"></div>';
+    const {tab} = await openPanel();
+    await page.evaluate(() => window.scrollTo(0, 120));
+    const thread = await worker.evaluate(tab => browser.tabs.sendMessage(tab.id, {research: 'twitter'}, {frameId: 0}), tab);
+    assert.equal(thread.error, undefined);
+    assert.deepEqual(thread.posts.map(p => p.id), Array.from({length: 10}, (_, i) => String(101 + i)));
+    assert.equal(thread.posts[0].author, 'researcher');
+    assert.equal(thread.posts[0].date, '2026-10-02T13:23:19Z');
+    assert.equal(thread.posts[0].quotes[0].text, 'Original AuditBench announcement');
+    assert.ok(thread.posts[7].links.some(link => link.url === 'https://t.co/paper'));
+    assert.equal(await page.evaluate(() => scrollY), 120, 'Restore a nonzero original scroll position');
+  }
+  console.log('PASS: quote timestamps do not hide the root post; hidden loaders and trailing space do not stall a complete thread');
+
+  html = '<!doctype html><title>Twitter thread</title>' + first + second
+    + '<div role="progressbar" style="height:3px">Loading more posts</div><div style="height:1000px"></div>';
+  ({panel} = await openPanel());
+  await page.evaluate(() => window.scrollTo(0, 120));
+  const beforeTimeout = await worker.evaluate(() => Zotero.Research.testStarts.length);
+  const timeoutStarted = performance.now();
+  await panel.locator('#entry').click();
+  await panel.waitForSelector('#error:not([hidden])', {timeout: 18000});
+  const timeoutElapsed = performance.now() - timeoutStarted;
+  assert.ok(timeoutElapsed >= 15000 && timeoutElapsed < 17000, `Loading must stop at 15 seconds (elapsed ${timeoutElapsed} ms)`);
+  assert.match(await panel.$eval('#error', n => n.textContent), /after 15 seconds/);
+  assert.equal(await worker.evaluate(() => Zotero.Research.testStarts.length), beforeTimeout, 'Do not import an incomplete thread on timeout');
+  assert.equal(await page.evaluate(() => scrollY), 120, 'Restore scroll position after timeout');
+  assert.equal(await panel.$eval('#entry', n => n.disabled), false, 'Allow retry after timeout');
+  console.log('PASS: genuinely unfinished threads stop after 15 seconds, restore scroll, and allow retry without importing');
+
   for (const text of ['A thread without links', mentions]) {
     html = '<!doctype html><title>Twitter</title>' + post('101', text) + post('201', 'Reply', card, 'someone_else');
     ({panel} = await openPanel());
