@@ -11,9 +11,21 @@
   <section id="categories" hidden aria-labelledby="categoriesHeading">
     <div class="section-heading"><h2 id="categoriesHeading">Categories</h2><span id="categoryStatus" role="status"></span></div>
     <div id="categoryChips"></div>
-    <details id="categoryPicker"><summary>Edit categories <span aria-hidden="true">⌄</span></summary>
-      <div class="category-menu"><input id="categorySearch" type="search" placeholder="Find a category…" aria-label="Find a category" autocomplete="off"><div id="categoryOptions"></div><p id="noCategories" class="hint" hidden>No matching categories</p></div>
-    </details>
+    <div class="category-actions">
+      <details id="categoryPicker"><summary>Edit categories <span aria-hidden="true">⌄</span></summary>
+        <div class="category-menu"><input id="categorySearch" type="search" placeholder="Find a category…" aria-label="Find a category" autocomplete="off"><div id="categoryOptions"></div><p id="noCategories" class="hint" hidden>No matching categories</p></div>
+      </details>
+      <button id="newCategory" class="secondary" aria-expanded="false" aria-controls="newCategoryForm"><span aria-hidden="true">＋</span> New category</button>
+    </div>
+    <form id="newCategoryForm" hidden aria-label="New category">
+      <div class="category-fields">
+        <label for="newCategoryName">Category name<input id="newCategoryName" placeholder="e.g. Model evaluations" autocomplete="off" required></label>
+        <label for="newCategoryParent">Create in<select id="newCategoryParent"><option value="">Top level</option></select></label>
+      </div>
+      <p id="newCategoryHint" class="hint">Creates a Zotero category and adds this paper to it.</p>
+      <p id="newCategoryError" role="alert" hidden></p>
+      <div class="new-category-actions"><button type="button" id="cancelNewCategory" class="secondary">Cancel</button><button id="createCategory" type="submit">Create &amp; add</button></div>
+    </form>
   </section>
   <section id="approval" hidden><h2>Suggested new categories</h2><p>Choose any to create. Existing categories have already been applied.</p><div id="proposals"></div><div class="approval-actions"><button id="approve">Save choices</button><button id="skip" class="secondary">Skip new categories</button></div></section>
   <section id="paper" hidden><h2>Summary</h2><p id="summary"></p><button id="produceSummary" hidden>Produce summary</button><p id="coverage" class="hint" hidden></p></section>

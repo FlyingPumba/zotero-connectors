@@ -151,6 +151,7 @@ browser.runtime.onMessage.addListener((message, sender) => {
 		if (message.action === 'command') return Zotero.Research.call('command', {id: data.id});
 		if (message.action === 'approve') return Zotero.Research.call('approve', {id: data.id, selected: data.selected});
 		if (message.action === 'category') return Zotero.Research.call('category', data);
+		if (message.action === 'createCategory') return Zotero.Research.call('createCategory', data);
 		if (['chat', 'summarize'].includes(message.action)) {
 			const {job} = await Zotero.Research.call('status', {id: data.id, reconnect: true});
 			if (job?.threadId && !job.sessionMissing) return Zotero.Research.call(message.action, data);

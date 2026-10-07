@@ -113,6 +113,55 @@ function renderCategories() {
 		if (focusedKey === category.key) input.focus();
 	}
 	filterCategories();
+	for (const id of ['newCategory', 'newCategoryName', 'newCategoryParent', 'cancelNewCategory']) $(id).disabled = categoryBusy;
+	updateNewCategory();
+}
+function showNewCategory(open) {
+	$('newCategoryForm').hidden = !open;
+	$('newCategory').setAttribute('aria-expanded', String(open));
+	if (!open) return;
+	$('categoryPicker').open = false;
+	const parent = $('newCategoryParent'), selected = parent.value;
+	const previous = parent.selectedOptions[0]?.textContent;
+	parent.replaceChildren(new Option('Top level', ''));
+	for (const category of [...(job.availableCollections || [])].sort((a, b) => a.path.localeCompare(b.path))) {
+		parent.add(new Option(category.path, category.key));
+	}
+	// Preserve a draft's parent even if it was deleted elsewhere. Saving can
+	// then report the missing category instead of silently using the top level.
+	if (selected && ![...parent.options].some(option => option.value === selected)) parent.add(new Option(previous, selected));
+	parent.value = selected;
+	$('newCategoryError').hidden = true;
+	updateNewCategory();
+	$('newCategoryName').focus();
+}
+function updateNewCategory() {
+	const name = $('newCategoryName').value.trim(), parentKey = $('newCategoryParent').value || null;
+	const existing = (job.availableCollections || []).find(c => c.name === name && (c.parentKey || null) === parentKey);
+	$('createCategory').disabled = categoryBusy || !name;
+	$('createCategory').textContent = categoryBusy ? 'Saving…' : existing ? 'Add existing category' : 'Create & add';
+	$('newCategoryHint').textContent = existing ? 'This category already exists. This paper will be added to it.'
+		: name ? `Creates ${[$('newCategoryParent').value ? $('newCategoryParent').selectedOptions[0].textContent : '', name].filter(Boolean).join(' / ')} and adds this paper to it.`
+		: 'Creates a Zotero category and adds this paper to it.';
+}
+async function createCategory(event) {
+	event.preventDefault();
+	const name = $('newCategoryName').value.trim();
+	if (categoryBusy || !name) return;
+	categoryBusy = true; $('newCategoryError').hidden = true;
+	$('categoryStatus').textContent = 'Saving…'; $('categoryStatus').classList.remove('failed'); renderCategories();
+	try {
+		const updated = await call('createCategory', {id: job.id, name, parentKey: $('newCategoryParent').value || null});
+		job.existingCollections = updated.existingCollections; job.availableCollections = updated.availableCollections;
+		$('categoryStatus').textContent = 'Saved to Zotero';
+		$('newCategoryForm').reset(); showNewCategory(false);
+	} catch (e) {
+		$('newCategoryError').textContent = e.message; $('newCategoryError').hidden = false;
+		$('categoryStatus').textContent = '';
+	} finally {
+		categoryBusy = false; renderCategories();
+		if ($('newCategoryForm').hidden) $('newCategory').focus();
+	}
 }
 function filterCategories() {
 	const query = $('categorySearch').value.trim().toLocaleLowerCase();
@@ -262,7 +311,12 @@ $('question').onkeydown = event => {
 	$('send').click();
 };
 $('categorySearch').oninput = filterCategories;
-$('categoryPicker').ontoggle = () => { if ($('categoryPicker').open) $('categorySearch').focus(); };
+$('newCategory').onclick = () => showNewCategory($('newCategoryForm').hidden);
+$('newCategoryName').oninput = updateNewCategory;
+$('newCategoryParent').onchange = updateNewCategory;
+$('newCategoryForm').onsubmit = createCategory;
+$('cancelNewCategory').onclick = () => { $('newCategoryForm').reset(); showNewCategory(false); $('newCategory').focus(); };
+$('categoryPicker').ontoggle = () => { if ($('categoryPicker').open) { showNewCategory(false); $('categorySearch').focus(); } };
 document.addEventListener('pointerdown', event => {
 	if (!$('categoryPicker').contains(event.target)) $('categoryPicker').open = false;
 });
@@ -270,6 +324,7 @@ window.addEventListener('blur', () => { $('categoryPicker').open = false; });
 document.addEventListener('keydown', event => {
 	if (event.key !== 'Escape') return;
 	if ($('categoryPicker').open) { $('categoryPicker').open = false; $('categoryPicker').querySelector('summary').focus(); }
+	else if (!$('newCategoryForm').hidden) { if (!categoryBusy) { showNewCategory(false); $('newCategory').focus(); } }
 	else call('close').catch(error);
 });
 $('copySession').onclick = async () => {
