@@ -386,6 +386,69 @@ try {
   await worker.waitForFunction(() => Zotero.Research.testOrdinary === 1);
   assert.equal(await worker.evaluate(() => Zotero.Research.testOrdinary), 1);
   console.log('PASS: missing paper links show an error; the usual save workflow is unchanged');
+
+  // Hold automatic detection after setDocument. A second detection used to
+  // replace that offscreen instance before its first getTranslators call.
+  await page.goto(paperURL);
+  const detectionTab = await worker.evaluate(async url => {
+    const tab = (await browser.tabs.query({url}))[0];
+    await Zotero.Connector_Browser.injectTranslationScripts(tab);
+    await browser.scripting.executeScript({target: {tabId: tab.id}, func: () => Zotero.PageSaving.onPageLoad()});
+    return tab;
+  }, paperURL);
+  for (const force of [false, true]) {
+    await worker.evaluate(tab => browser.scripting.executeScript({target: {tabId: tab.id}, func: async () => {
+      const saving = Zotero.PageSaving, init = saving._initTranslate, detect = saving.onPageLoad;
+      let ready, release, joined;
+      const initialized = new Promise(resolve => { ready = resolve; });
+      const pause = new Promise(resolve => { release = resolve; });
+      const state = Zotero.testDetection = {starts: 0, calls: 0, release,
+        joined: new Promise(resolve => { joined = resolve; }),
+        restore: () => { saving._initTranslate = init; saving.onPageLoad = detect; }};
+      saving._initTranslate = async function(...args) {
+        state.starts++;
+        const translate = await init.apply(this, args);
+        if (state.starts === 1) { ready(); await pause; }
+        return translate;
+      };
+      saving.onPageLoad = function(...args) {
+        if (++state.calls === 2) joined();
+        return detect.apply(this, args);
+      };
+      state.initial = saving.onPageLoad(true);
+      await initialized;
+    }}), detectionTab);
+    const overlapping = worker.evaluate(({tab, force}) => force
+      ? browser.scripting.executeScript({target: {tabId: tab.id}, func: () => Zotero.PageSaving.onPageLoad(true)})
+      : browser.tabs.sendMessage(tab.id, {research: 'extract', metadata: true, detect: true}, {frameId: 0}), {tab: detectionTab, force});
+    let beforeRelease, result;
+    try {
+      const [{result: starts}] = await worker.evaluate(tab => browser.scripting.executeScript({target: {tabId: tab.id}, func: async () => {
+        await Zotero.testDetection.joined;
+        return Zotero.testDetection.starts;
+      }}), detectionTab);
+      beforeRelease = starts;
+    } finally {
+      await worker.evaluate(tab => browser.scripting.executeScript({target: {tabId: tab.id}, func: () => Zotero.testDetection.release()}), detectionTab);
+      try { result = await overlapping; }
+      finally {
+        await worker.evaluate(tab => browser.scripting.executeScript({target: {tabId: tab.id}, func: async () => {
+          await Zotero.testDetection.initial;
+          Zotero.testDetection.restore();
+        }}), detectionTab);
+      }
+    }
+    assert.equal(beforeRelease, 1, 'A second caller must not reset the offscreen translator during detection');
+    const [{result: starts}] = await worker.evaluate(tab => browser.scripting.executeScript({target: {tabId: tab.id}, func: () => Zotero.testDetection.starts}), detectionTab);
+    assert.equal(starts, 2, force ? 'Run the forced refresh after the pending detection' : 'Initialize translation after the shared detection completes');
+    if (!force) {
+      assert.equal(result.error, undefined);
+      assert.equal(result.item.title, 'Linked research paper');
+      assert.ok(result.item.creators.some(author => author.lastName === 'Researcher'));
+      assert.equal(result.source.url, paperURL);
+    }
+  }
+  console.log('PASS: research waits for in-flight detection, imports metadata, and still honors forced page refreshes');
   const translatorErrors = (await worker.evaluate(() => Zotero.Errors.getErrors())).filter(error => /Cannot read properties of (?:null|undefined)/.test(error));
   assert.deepEqual(translatorErrors, [], 'No null/undefined translator errors during the chooser and import flows');
 } catch (error) {
