@@ -225,8 +225,6 @@ function render(next) {
 	if (!job) return;
 	$('title').textContent = job.title;
 	textMath($('summary'), job.summary || '');
-	$('coverage').textContent = job.sourceInfo?.warning || '';
-	$('coverage').hidden = !job.sourceInfo?.warning;
 	renderCategories();
 	$('session').hidden = !job.threadId || job.sessionMissing;
 	$('sessionCommand').textContent = job.threadId ? `codex resume ${job.threadId}` : '';
