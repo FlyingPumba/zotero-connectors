@@ -203,8 +203,6 @@ function updateActivity() {
 }
 function render(next) {
 	job = next;
-	$('restoreTitle').textContent = job?.title || 'Zotero Research';
-	$('restore').title = job?.title || 'Open docked panel';
 	$('actions').hidden = !!job;
 	$('footer').hidden = !job;
 	const expanded = !!job && (['ready', 'chatting', 'summarizing'].includes(job.status) || !!job.summary);

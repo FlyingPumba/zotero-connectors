@@ -52,7 +52,11 @@ export async function checkPanelDocking(page, panel, screenshotPrefix) {
   await clickControl('#minimize');
   await page.waitForFunction(n => n.getBoundingClientRect().height === 56 && n.getBoundingClientRect().width === 320, {}, iframe);
   assert.equal(await panel.$eval('main', n => n.getClientRects().length), 0);
-  assert.equal(await panel.$eval('#restoreTitle', n => n.textContent), await panel.evaluate(() => job?.title || 'Zotero Research'));
+  assert.equal(await panel.$eval('#restoreTitle', n => n.textContent), 'Zotero Research');
+  assert.equal(await iframe.evaluate(n => n.style.boxShadow.includes('100vmax')), false, 'Minimized panels do not dim the document');
+  const minimizedRect = await iframe.boundingBox();
+  assert.equal(minimizedRect.x + minimizedRect.width, viewport.width - 16);
+  assert.equal(minimizedRect.y + minimizedRect.height, viewport.height);
   assert.equal(await panel.$eval('#close', n => n.getClientRects().length > 0), true);
   if (screenshotPrefix) await page.screenshot({path: screenshotPrefix + '-minimized.png'});
   // The restore button also works from the keyboard.
