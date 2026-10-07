@@ -11,7 +11,10 @@ Zotero.ResearchTwitter = {
 		} catch { return null; }
 	},
 	readPost(article) {
-		const time = article.querySelector('time'), identity = this.postURL(time?.closest('a')?.href);
+		// A quoted post can put its timestamp before the main post's permalink.
+		const time = [...article.querySelectorAll('time')].find(node => !node.closest('div[role="link"]')
+			&& this.postURL(node.closest('a')?.href));
+		const identity = this.postURL(time?.closest('a')?.href);
 		if (!identity) return null;
 		const name = article.querySelector('[data-testid="User-Name"]');
 		const text = article.querySelector('[data-testid="tweetText"]');
@@ -31,13 +34,21 @@ Zotero.ResearchTwitter = {
 		if (!origin) throw new Error('Open the Twitter post for this paper first.');
 		const scroll = {x: window.scrollX, y: window.scrollY};
 		const posts = new Map();
-		const waitForRender = () => new Promise(resolve => setTimeout(resolve, 700));
-		const started = Date.now();
+		const deadline = Date.now() + 15000;
+		const checkTimeout = () => {
+			if (Date.now() >= deadline) throw new Error('Twitter has not finished loading the thread after 15 seconds. Load its remaining posts and try again.');
+		};
+		const waitForRender = async () => {
+			checkTimeout();
+			await new Promise(resolve => setTimeout(resolve, Math.min(700, deadline - Date.now())));
+			checkTimeout();
+		};
 		try {
 			window.scrollTo({top: 0, behavior: 'instant'});
 			await waitForRender();
 			let found = false, finished = false;
 			while (!finished) {
+				checkTimeout();
 				if (location.pathname !== new URL(origin.url).pathname) throw new Error('The Twitter page changed while reading the thread. Try again on the post.');
 				let last;
 				const recommendations = [...document.querySelectorAll('h2,[role="heading"]')]
@@ -59,9 +70,12 @@ Zotero.ResearchTwitter = {
 					last = article;
 				}
 				if (found && finished) break;
-				if (found && !document.querySelector('[role="progressbar"]') && window.scrollY + innerHeight >= document.documentElement.scrollHeight - 2) break;
-				if (Date.now() - started > 60000) throw new Error('Twitter has not finished loading the thread. Load its remaining posts and try again.');
-				if (last) last.scrollIntoView({block: 'start', behavior: 'instant'});
+				const loading = [...document.querySelectorAll('[role="progressbar"]')]
+					.some(node => node.getClientRects().length && getComputedStyle(node).visibility === 'visible');
+				if (found && !loading && window.scrollY + innerHeight >= document.documentElement.scrollHeight - 2) break;
+				// Keep moving forward through Twitter's trailing timeline space rather
+				// than repeatedly jumping back to the final captured post.
+				if (last && last.getBoundingClientRect().top > 0) last.scrollIntoView({block: 'start', behavior: 'instant'});
 				else window.scrollBy({top: innerHeight, behavior: 'instant'});
 				await waitForRender();
 				// Move beyond the last captured post so Twitter loads the next part.
