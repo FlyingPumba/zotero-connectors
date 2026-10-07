@@ -136,13 +136,16 @@ try {
     summary: 'A saved result. '.repeat(150), messages: [], existingCollections: [{key: 'a', path: 'Machine learning / Attention'}],
     availableCollections: [{key: 'a', name: 'Attention', parentKey: null, path: 'Machine learning / Attention'},
       {key: 'b', name: 'Oversight', parentKey: null, path: 'Safety / Oversight'}, {key: 'fail', name: 'Broken category', parentKey: null, path: 'Broken category'}],
-    threadId: '019-test-persistent-session', model: 'gpt-6-astra', sourceInfo: {kind: 'PDF text'},
+    threadId: '019-test-persistent-session', model: 'gpt-6-astra',
+    sourceInfo: {kind: 'Web page text', warning: 'No PDF source was available; using the web page text.'},
     proposedCollections: [{name: 'A proposed category', reason: 'Relevant topic'}], coverage: 'full_text'};
   await worker.evaluate(job => Zotero.Research.setTestJob(job), job);
   await panel.evaluate(() => refresh());
   await panel.waitForFunction(() => innerHeight === 760);
   assert.equal(await panel.$eval('#chat', n => n.hidden), false, 'Chat is available before category review');
-  assert.equal(await panel.$eval('#coverage', n => n.hidden), true);
+  assert.equal(await panel.$('#coverage'), null);
+  assert.equal(await panel.evaluate(warning => document.body.textContent.includes(warning), job.sourceInfo.warning), false,
+    'Source-status disclaimers are not displayed, including in existing saved jobs');
   assert.equal(await panel.$eval('#ordinary', n => n.getClientRects().length), 0);
   assert.equal(await panel.$eval('#activity', n => n.hidden), true);
   job.summary = 'A saved result.';
