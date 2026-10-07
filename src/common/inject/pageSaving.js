@@ -92,7 +92,23 @@ let PageSaving = {
 	 * @param force
 	 * @returns {Promise<void|*>}
 	 */
-	async onPageLoad(force) {
+	onPageLoad(force) {
+		if (!Zotero.isManifestV3) return this._detectTranslators(force);
+		// MV3 has one offscreen translator per tab/frame. Research extraction can
+		// request detection while the automatic page-load detection is still
+		// setting it up; starting another instance would erase its document URL.
+		if (this._detectPromise) {
+			// A page-change notification still needs a fresh pass after the current
+			// detection, while ordinary callers can share the current result.
+			return force ? this._detectPromise.then(() => this.onPageLoad(force)) : this._detectPromise;
+		}
+		this._detectPromise = this._detectTranslators(force).finally(() => {
+			this._detectPromise = null;
+		});
+		return this._detectPromise;
+	},
+
+	async _detectTranslators(force) {
 		if (document.location == "about:blank") return;
 
 		// Reset session on every init so a new save is triggered after JS-based changes
