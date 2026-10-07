@@ -56,6 +56,9 @@ footer { padding: 0 24px 20px; } #ordinary { display: block; width: 100%; }
 .markdown table { display: block; border-collapse: collapse; overflow-x: auto; max-width: 100%; }
 .markdown th, .markdown td { border: 1px solid #c0d2ca; padding: 6px 10px; }
 .markdown a { color: #235b4c; text-underline-offset: 2px; }
+.research-math { white-space: normal; overflow-wrap: normal; }
+.research-math-display { display: block; max-width: 100%; overflow-x: auto; overflow-y: hidden; }
+.research-math .katex-display { margin: 12px 0; width: max-content; min-width: 100%; }
 #session { border-top: 1px solid #e3e7e3; padding-top: 14px; margin: 18px 0 10px; }
 #session > summary { cursor: pointer; color: #67716e; font-size: 12px; }
 .session-command { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 10px 0; }
