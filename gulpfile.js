@@ -82,6 +82,7 @@ var injectInclude = [
 	'messaging_inject.js',
 	'inject/progressWindow_inject.js',
 	'inject/researchTwitter.js',
+	'inject/researchAnthropic.js',
 	'inject/research.js',
 	'inject/modalPrompt_inject.js',
 	'messagingGeneric.js',
