@@ -39,6 +39,7 @@ Zotero.Research = {
 					url = new URL(target.url);
 				}
 				if (!['http:', 'https:'].includes(url.protocol)) continue;
+				if (/(^|\.)(?:x|twitter)\.com$/.test(url.hostname)) continue;
 				const arxiv = /^(?:www\.|export\.)?arxiv\.org$/.test(url.hostname)
 					&& url.pathname.match(/^\/(?:abs|pdf|html)\/([^?#]+?)(?:\.pdf)?\/?$/);
 				if (arxiv) url = new URL('https://arxiv.org/abs/' + arxiv[1]);
@@ -74,7 +75,7 @@ Zotero.Research = {
 			if (!thread || thread.error) throw new Error(thread?.error || 'Could not read the Twitter thread.');
 			await this.progress(tab, 'Reading the URLs linked in the thread…');
 			const candidates = await this.paperLinks(thread);
-			if (!candidates.length) throw new Error('No URL was found in the author’s thread. Open a thread with a link to the paper, then try again.');
+			if (!candidates.length) throw new Error('No paper URL was found in the author’s thread. Open a thread with a link outside X/Twitter, then try again.');
 			pending = {requestID: data.requestID, pageURL: tab.url, thread, candidates};
 			await browser.storage.session.set({[key]: pending});
 		}
