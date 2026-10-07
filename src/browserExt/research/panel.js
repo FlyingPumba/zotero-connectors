@@ -267,7 +267,7 @@ async function act(action, data) {
 	if (action === 'start') $('ordinary').hidden = true;
 	busy = true; activeAction = action; actionStartedAt = Date.now(); $('error').hidden = true;
 	updateProgress();
-	for (const id of ['entry', 'pdf', 'approve', 'skip', 'retry', 'send', 'produceSummary']) $(id).disabled = true;
+	for (const id of ['entry', 'pdf', 'categorize', 'approve', 'skip', 'retry', 'send', 'produceSummary']) $(id).disabled = true;
 	try {
 		$('status').textContent = action === 'start' ? 'Reading metadata and adding entry…' : 'Working…';
 		const result = await call(action, data);
@@ -290,13 +290,14 @@ async function act(action, data) {
 	} catch (e) { error(e); }
 	finally {
 		busy = false; activeAction = null; updateProgress();
-		for (const id of ['entry', 'pdf', 'approve', 'skip', 'retry']) $(id).disabled = false;
+		for (const id of ['entry', 'pdf', 'categorize', 'approve', 'skip', 'retry']) $(id).disabled = false;
 		$('send').disabled = !!job && job.status !== 'ready';
 		$('produceSummary').disabled = job?.status !== 'ready';
 	}
 }
 $('entry').onclick = () => act('start', {mode: 'entry', requestID});
 $('pdf').onclick = () => act('start', {mode: 'pdf', requestID});
+$('categorize').onclick = () => act('start', {mode: 'categorize', requestID});
 $('close').onclick = () => call('close').catch(error);
 $('dock').onclick = () => setPanelMode(panelMode === 'docked' ? 'floating' : 'docked');
 $('minimize').onclick = () => setPanelMode('minimized');

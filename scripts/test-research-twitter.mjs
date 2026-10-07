@@ -105,12 +105,12 @@ try {
       if (method === 'status') return {job: data.id ? Zotero.Research.testJob : null};
       if (method === 'start') {
         // Match the native plugin's request validation, including the required title.
-        if (!['entry', 'pdf'].includes(data.mode) || !data.item?.title || !data.requestID) {
+        if (!['entry', 'pdf', 'categorize'].includes(data.mode) || !data.item?.title || !data.requestID) {
           throw new Error('Incomplete paper request.');
         }
         Zotero.Research.testStarts.push(data);
         return Zotero.Research.testJob = {id: data.requestID, mode: data.mode, title: data.item.title, url: data.source.url,
-          status: 'ready', stage: 'Ready to discuss', summary: 'Summary of the paper.', existingCollections: [], availableCollections: [], messages: []};
+          status: 'ready', stage: 'Ready to discuss', summary: data.mode === 'categorize' ? '' : 'Summary of the paper.', existingCollections: [], availableCollections: [], messages: []};
       }
     };
     Zotero.Connector_Browser.saveWithTranslator = Zotero.Connector_Browser.saveAsWebpage = async () => { Zotero.Research.testOrdinary++; };
@@ -142,7 +142,7 @@ try {
       && innerHeight === Math.ceil(document.body.getBoundingClientRect().height));
     return {panel, tab};
   }
-  for (const mode of ['entry', 'pdf']) {
+  for (const mode of ['entry', 'pdf', 'categorize']) {
     const {panel} = await openPanel();
     const count = await worker.evaluate(() => Zotero.Research.testStarts.length);
     await panel.locator('#' + mode).click();
@@ -168,7 +168,7 @@ try {
     await panel.locator('#close').click();
   }
   const linkRequests = await worker.evaluate(() => Zotero.Research.testLinkRequests);
-  assert.deepEqual(linkRequests.map(r => r.method), ['HEAD', 'GET', 'HEAD', 'GET']);
+  assert.deepEqual(linkRequests.map(r => r.method), ['HEAD', 'GET', 'HEAD', 'GET', 'HEAD', 'GET']);
   assert.ok(linkRequests.every(r => r.url === 'https://t.co/paper'));
   assert.ok(linkRequests.filter(r => r.method === 'GET').every(r => r.redirect === 'manual'), 'Never download other linked pages while resolving destinations');
   const httpRedirect = await worker.evaluate(async () => {
@@ -177,7 +177,7 @@ try {
     finally { Zotero.Research.testRedirectMode = 'html'; }
   });
   assert.equal(httpRedirect.url, paperURL);
-  console.log('PASS: both Add modes require a choice, follow the selected paper, and capture only the main thread with pictures/quotes');
+  console.log('PASS: all three Add modes require a choice, follow the selected paper, and capture only the main thread with pictures/quotes');
 
   html = '<!doctype html><title>Twitter</title>' + first + post('102', `Related work: <a href="${paperURL}">First.pdf</a> and <a href="${paperURL}?v=2">Second.pdf</a>`)
     + post('201', 'Reply', '', 'someone_else');

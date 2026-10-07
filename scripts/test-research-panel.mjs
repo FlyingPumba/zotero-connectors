@@ -37,6 +37,12 @@ try {
           mode: data.mode, title: 'Paper preview', model: 'gpt-6-astra', messages: [],
           createdAt: new Date(Date.now() - 125000).toISOString(),
           operationStartedAt: new Date(Date.now() - 65000).toISOString()};
+        if (data.mode === 'categorize') {
+          if (!data.source.pageText.includes('Paper preview')) throw new Error('Categorization needs the page content');
+          Object.assign(currentJob, {status: 'ready', stage: 'Ready to discuss', summary: '',
+            threadId: 'categorized-session', existingCollections: [{key: 'a', path: 'Machine learning / Attention'}],
+            availableCollections: [{key: 'a', name: 'Attention', parentKey: null, path: 'Machine learning / Attention'}]});
+        }
       }
       if (method === 'summarize') {
         if (data.source) throw new Error('Summary in an existing session must not fetch the page again');
@@ -85,12 +91,13 @@ try {
   await panel.waitForFunction(() => !document.getElementById('error').hidden);
   assert.equal(await panel.$eval('#error', n => n.textContent), 'Zotero is unavailable');
   assert.equal(await panel.$eval('#progress', n => n.hidden), true, 'A failed initial status check must stop connecting');
-  const buttons = await panel.evaluate(() => ['entry', 'pdf', 'ordinary'].map(id => {
+  const buttons = await panel.evaluate(() => ['entry', 'pdf', 'categorize', 'ordinary'].map(id => {
     const node = document.getElementById(id), rect = node.getBoundingClientRect();
     return {parent: node.parentElement.id, top: rect.top, bottom: rect.bottom};
   }));
-  assert.deepEqual(buttons.map(b => b.parent), ['actions', 'actions', 'actions']);
+  assert.deepEqual(buttons.map(b => b.parent), ['actions', 'actions', 'actions', 'actions']);
   assert.equal(buttons[2].top - buttons[1].bottom, buttons[1].top - buttons[0].bottom);
+  assert.equal(buttons[3].top - buttons[2].bottom, buttons[1].top - buttons[0].bottom);
   await worker.evaluate(() => Zotero.Research.setStatusError(null));
   await panel.evaluate(() => refresh());
   assert.equal(await panel.$eval('#error', n => n.hidden), true);
@@ -99,12 +106,12 @@ try {
   const ready = await panel.evaluate(() => ({width: innerWidth, height: innerHeight, text: document.body.innerText,
     scrollHeight: document.documentElement.scrollHeight, bottomGap: innerHeight - document.getElementById('ordinary').getBoundingClientRect().bottom,
     buttons: [...document.querySelectorAll('main button, footer button')].filter(b => b.offsetHeight).map(b => b.textContent)}));
-  assert.deepEqual(ready.buttons, ['Add entry & Summarize', 'Add PDF & Summarize', 'Save with usual workflow']);
+  assert.deepEqual(ready.buttons, ['Add entry & Summarize', 'Add PDF & Summarize', 'Add entry', 'Save with usual workflow']);
   assert.ok(!ready.text.includes('A concise research') && !ready.text.includes('Ready'));
   assert.equal(ready.width, 360);
-  assert.ok(ready.height >= 250 && ready.height < 300, JSON.stringify(ready));
+  assert.ok(ready.height >= 300 && ready.height < 360, JSON.stringify(ready));
   assert.ok(ready.bottomGap >= 24, JSON.stringify(ready));
-  assert.ok(ready.scrollHeight <= ready.height, 'All three actions must fit without a scrollbar');
+  assert.ok(ready.scrollHeight <= ready.height, 'All four actions must fit without a scrollbar');
   await (await panel.frameElement()).screenshot({path: output + '/zotero-panel-ready.png'});
   // Ordinary saving is an initial choice, not an action on an ingested paper.
   const ordinaryClosed = new Promise(resolve => page.on('framedetached', frame => { if (frame === panel) resolve(); }));
@@ -498,6 +505,41 @@ $$\begin{pmatrix}a & b \\ c & d\end{pmatrix}$$
   await panel.waitForFunction(() => job?.mode === 'pdf' && !busy);
   assert.equal(await panel.$eval('#ordinary', n => n.getClientRects().length), 0);
   assert.equal(await worker.evaluate(() => Zotero.Research.ordinarySaves), 1);
+  const pdfClosed = new Promise(resolve => page.on('framedetached', frame => { if (frame === panel) resolve(); }));
+  await panel.locator('#close').click();
+  await pdfClosed;
+  await worker.evaluate(() => Zotero.Research.setTestJob(null));
+  await worker.evaluate(async id => Zotero.Research.show(await browser.tabs.get(id)), tabID);
+  panel = await page.waitForFrame(f => f.url().includes('/research/panel.html'));
+  await panel.waitForFunction(() => document.getElementById('progress').hidden);
+  await panel.locator('#categorize').click();
+  await panel.waitForFunction(() => job?.mode === 'categorize' && job.status === 'ready' && !busy);
+  assert.equal(await panel.$eval('#summary', n => n.hidden), true);
+  assert.equal(await panel.$eval('#produceSummary', n => n.hidden || n.disabled), false);
+  assert.equal(await panel.$eval('#send', n => n.disabled), false);
+  assert.equal(await panel.$eval('#chat', n => n.hidden), false);
+  assert.match(await panel.$eval('#categoryChips', n => n.textContent), /Machine learning \/ Attention/);
+  await panel.waitForFunction(height => innerHeight === Math.min(Math.ceil(document.body.getBoundingClientRect().height), 760, height - 32), {}, page.viewport().height);
+  await panel.type('#question', 'Discuss this paper without a summary.');
+  await panel.focus('#send');
+  await page.keyboard.press('Enter');
+  await panel.waitForFunction(() => job.status === 'chatting' && !busy).catch(async error => {
+    console.log('Add entry chat:', await panel.evaluate(() => ({job, busy, question: $('question').value, error: $('error').textContent})));
+    throw error;
+  });
+  const categorized = await panel.evaluate(() => ({...job, status: 'ready', messages: [...job.messages, {role: 'assistant', text: 'A grounded answer.'}]}));
+  await worker.evaluate(job => Zotero.Research.setTestJob(job), categorized);
+  await panel.evaluate(() => refresh());
+  assert.equal(await panel.$eval('#summary', n => n.hidden), true);
+  await panel.focus('#produceSummary');
+  await page.keyboard.press('Enter');
+  await panel.waitForFunction(() => job.status === 'summarizing' && !busy);
+  await worker.evaluate(job => Zotero.Research.setTestJob({...job, summary: 'A summary requested later.'}), categorized);
+  await panel.evaluate(() => refresh());
+  assert.equal(await panel.$eval('#summary', n => n.textContent), 'A summary requested later.');
+  assert.deepEqual(await panel.evaluate(() => job.messages), categorized.messages);
+  assert.deepEqual(await panel.evaluate(() => job.existingCollections), categorized.existingCollections);
+  console.log('PASS: Add entry opens categorized discussion without a summary, then supports chat and Produce summary');
   console.log(JSON.stringify({ready, progress, longContentCapsAt760: true, shrinksAfterContentChange: true,
     independentCategoryReviewAndOrdinarySavePreserved: true, chatProgress, streamingReplacesProgress: true, centered: rect, categoryEditingAndMarkdown: true, narrow}, null, 2));
 } finally {
