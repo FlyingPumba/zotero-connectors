@@ -75,6 +75,27 @@ try {
   assert.deepEqual((await extract(url, {...translated, creators: []})).item.creators, [authors[0]], 'Handle single-author posts too');
   console.log('PASS: LessWrong imports include the primary author and coauthors in order, without dropping or duplicating existing creators');
 
+  for (const origin of ['https://www.alignmentforum.org', 'https://alignmentforum.org']) {
+    const forumURL = origin + '/posts/research-fixture/hidden-post';
+    const forumItem = {...translated, url: forumURL, forumTitle: 'AI Alignment Forum'};
+    html = '<!doctype html><title>Research fixture</title>' + metas + '<body>x<div hidden id="S:2">'
+      + article + '</div><nav>Navigation clutter</nav><div id="comments">Unrelated discussion</div>';
+    const forum = await extract(forumURL, forumItem);
+    assert.equal(forum.error, undefined);
+    assert.equal(forum.source.url, forumURL);
+    assert.equal(forum.source.pageText, hidden.source.pageText, 'Both forums use the same article extractor');
+    assert.deepEqual(forum.item, {...forumItem, creators: [...authors, editor]}, 'Both forums restore the complete author list');
+    assert.ok(await page.$eval('#S\\:2', node => node.hidden));
+    assert.deepEqual((await extract(forumURL + '?commentId=comment', forumItem)).item, forumItem, 'Preserve comment creators');
+    html = '<!doctype html><title>Loading post</title><body>x';
+    assert.match((await extract(forumURL)).error, /Could not read the Alignment Forum post text/);
+    html += '<div id="postContent"><script>void 0</script></div>';
+    assert.match((await extract(forumURL)).error, /Could not read the Alignment Forum post text/);
+    html = '<!doctype html><title>Other page</title><body><p>Other page text.</p>';
+    assert.equal((await extract(origin + '/')).source.pageText, 'Other page text.', 'Preserve non-post pages');
+  }
+  console.log('PASS: Alignment Forum uses the same hidden-text extraction, author handling, and missing-content errors with or without www');
+
   if (process.argv.includes('--live-lesswrong')) {
     const sourceURL = 'https://www.lesswrong.com/posts/Zeg2JztbdhguL48uH/workspacebench-evaluating-interpretability-methods-for-the';
     const result = await worker.evaluate(url => Zotero.Research.extractPaper(url), sourceURL);
@@ -85,5 +106,19 @@ try {
     for (const section of ['3,356', 'Introduction', 'Grading', 'Appendix']) assert.ok(result.source.pageText.includes(section), section);
     assert.deepEqual(result.item.creators.map(creator => [creator.firstName, creator.lastName].filter(Boolean).join(' ')), names, 'Import the complete live byline in order');
     console.log(`PASS: real inactive-tab import captures ${result.source.pageText.length} characters and ${result.item.creators.length} authors from WorkspaceBench`);
+  }
+  if (process.argv.includes('--live-alignmentforum')) {
+    const sourceURL = 'https://www.alignmentforum.org/posts/GTYJRLhqztxKF2v5R/synthetic-document-finetuning-for-instilling-positive-traits';
+    const result = await worker.evaluate(url => Zotero.Research.extractPaper(url), sourceURL);
+    assert.equal(result.item.title, 'Synthetic document finetuning for instilling positive traits');
+    assert.equal(result.item.itemType, 'forumPost');
+    assert.equal(result.item.forumTitle, 'AI Alignment Forum');
+    assert.equal(result.source.url, sourceURL);
+    assert.ok(result.source.pageText.length > 5000);
+    assert.ok(result.source.pageText.includes('This is the fifth in a series'));
+    assert.ok(result.source.pageText.includes('Thanks to Chloe Li'));
+    assert.deepEqual(result.item.creators.map(creator => [creator.firstName, creator.lastName].filter(Boolean).join(' ')),
+      ['CallumMcDougall', 'Arthur Conmy', 'Neel Nanda']);
+    console.log(`PASS: real inactive-tab Alignment Forum import captures ${result.source.pageText.length} characters and ${result.item.creators.length} authors (${result.item.itemType})`);
   }
 } finally { await browser.close(); }

@@ -1,14 +1,18 @@
 /* global Zotero, browser */
 if (Zotero.isManifestV3 && window.top === window) {
 	let researchFrame;
+	function isForumPost() {
+		return /(^|\.)(?:lesswrong\.com|alignmentforum\.org)$/.test(location.hostname) && location.pathname.startsWith('/posts/');
+	}
 	function pageText() {
-		if (!/(^|\.)lesswrong\.com$/.test(location.hostname) || !location.pathname.startsWith('/posts/')) {
+		if (!isForumPost()) {
 			return document.body?.innerText || '';
 		}
-		// LessWrong streams the article into a hidden React container. In an
+		// Both forums stream the article into a hidden React container. In an
 		// inactive tab it can stay hidden after load, so body.innerText misses it.
+		const site = /(^|\.)lesswrong\.com$/.test(location.hostname) ? 'LessWrong' : 'Alignment Forum';
 		const post = document.querySelector('#postContent')?.cloneNode(true);
-		if (!post) throw new Error('Could not read the LessWrong post text. Open the full post and try again.');
+		if (!post) throw new Error(`Could not read the ${site} post text. Open the full post and try again.`);
 		for (const node of post.querySelectorAll('script, style, noscript')) node.remove();
 		for (const node of post.querySelectorAll('br')) node.replaceWith('\n');
 		for (const node of post.querySelectorAll('p, div, h1, h2, h3, h4, h5, h6, li, pre, blockquote, section, table, tr')) {
@@ -16,7 +20,7 @@ if (Zotero.isManifestV3 && window.top === window) {
 		}
 		for (const node of post.querySelectorAll('th, td')) node.append('\t');
 		const text = post.textContent.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
-		if (!text) throw new Error('Could not read the LessWrong post text. Open the full post and try again.');
+		if (!text) throw new Error(`Could not read the ${site} post text. Open the full post and try again.`);
 		return text;
 	}
 	browser.runtime.onMessage.addListener(message => {
@@ -54,7 +58,19 @@ if (Zotero.isManifestV3 && window.top === window) {
 			if (!message.metadata) return {source};
 			let item;
 			if (message.detect) await Zotero.PageSaving.onPageLoad();
-			const translators = Zotero.PageSaving.translators;
+			let translators = Zotero.PageSaving.translators;
+			const alignmentForumPost = isForumPost() && /(^|\.)alignmentforum\.org$/.test(location.hostname);
+			if (alignmentForumPost) {
+				// ForumMagnum supports this site's API, but its URL matcher currently
+				// omits Alignment Forum. Keep the detected translators as fallbacks.
+				const forum = await Zotero.Translators.get('d9f957ca-6393-48ba-b179-59c384e37a12').catch(error => {
+					Zotero.logError(error); return null;
+				});
+				if (forum) {
+					forum.itemType = 'forumPost';
+					translators = [forum, ...(translators || []).filter(translator => translator.translatorID !== forum.translatorID)];
+				}
+			}
 			if (translators?.length && translators[0].itemType !== 'multiple') {
 				const translate = await Zotero.PageSaving._initTranslate(translators[0].itemType);
 				const result = await Zotero.TranslateWeb.translate({translate, translators: translators.slice()});
@@ -69,8 +85,8 @@ if (Zotero.isManifestV3 && window.top === window) {
 					creators: [], tags: [], attachments: []};
 			}
 			if (!item) throw new Error('The translator did not return a paper.');
-			if (/(^|\.)lesswrong\.com$/.test(location.hostname) && location.pathname.startsWith('/posts/')
-				&& !new URL(location.href).searchParams.has('commentId')) {
+			if (alignmentForumPost && item.itemType === 'forumPost') item.forumTitle = 'AI Alignment Forum';
+			if (isForumPost() && !new URL(location.href).searchParams.has('commentId')) {
 				// ForumMagnum can return coauthors without the primary author. The
 				// page's citation metadata contains the full byline in display order.
 				const names = [...document.querySelectorAll('meta[name="citation_author"]')].map(node => node.content.trim()).filter(Boolean);
