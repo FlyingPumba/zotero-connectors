@@ -48,7 +48,10 @@ try {
     await worker.evaluate(async () => {
       await Zotero.initDeferred.promise;
       await Zotero.Prefs.set('firstUse', false);
-      Zotero.Research.call = async () => ({job: null});
+      Zotero.Research.testSettings = {model: 'gpt-6-astra', effort: 'xhigh', models: [
+        {model: 'gpt-6-astra', supportedReasoningEfforts: [{reasoningEffort: 'high'}, {reasoningEffort: 'xhigh'}]}
+      ]};
+      Zotero.Research.call = async method => method === 'settings' ? Zotero.Research.testSettings : {job: null};
       Zotero.Research.toolbarCompleted = 0;
       const show = Zotero.Research.show;
       Zotero.Research.show = async function(tab) {
@@ -106,6 +109,7 @@ try {
     Zotero.Research.pdfStarts = [];
     Zotero.Research.ordinarySaves = [];
     Zotero.Research.call = async (method, data) => {
+      if (method === 'settings') return Zotero.Research.testSettings;
       if (method === 'status') return {job: Zotero.Research.pdfJob};
       if (method === 'start') {
         Zotero.Research.pdfStarts.push(data);
@@ -138,6 +142,8 @@ try {
     assert.equal(await pdfPanel.$eval('#entry', n => n.getClientRects().length > 0), true);
     assert.equal(await pdfPanel.$eval('#pdf', n => n.getClientRects().length > 0), true);
     assert.equal(await pdfPanel.$eval('#ordinary', n => n.getClientRects().length > 0), true);
+    await pdfPanel.waitForFunction(() => !document.getElementById('ingestionEffort').disabled);
+    await pdfPanel.select('#ingestionEffort', 'high');
     await pdfPanel.locator('#' + mode).click();
     if (mode === 'ordinary') {
       await worker.waitForFunction(() => Zotero.Research.ordinarySaves.length === 1);
@@ -149,6 +155,7 @@ try {
       await pdfPanel.waitForFunction(() => job?.status === 'ready' && !busy);
       const request = await worker.evaluate(() => Zotero.Research.pdfStarts.at(-1));
       assert.equal(request.mode, mode);
+      assert.deepEqual(request.ingestionSettings, {model: 'gpt-6-astra', effort: 'high'}, 'Direct PDFs preserve the page-specific effort');
       assert.ok(request.item.title && request.requestID);
       assert.equal(request.item.itemType, 'webpage', 'Direct PDFs reach the existing native metadata recognizer');
       assert.equal(request.source.url, pdfURL);
