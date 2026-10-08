@@ -23,7 +23,11 @@ try {
   await worker.evaluate(async () => {
     await Zotero.initDeferred.promise;
     await Zotero.Prefs.set('firstUse', false);
+    await Zotero.Prefs.set('connector.url', 'http://127.0.0.1:1/');
+    const realResearchCall = Zotero.Research.call.bind(Zotero.Research);
     let currentJob = null, statusError = 'Zotero is unavailable';
+    Zotero.Research.settingsReads = 0;
+    Zotero.Research.testClosed = false;
     Zotero.Research.setStatusError = message => { statusError = message; };
     Zotero.Research.setTestJob = job => { currentJob = job; };
     Zotero.Research.testSettings = {model: 'gpt-6-astra', effort: 'xhigh', models: [
@@ -31,7 +35,10 @@ try {
       {model: 'other-model', displayName: 'Other model', supportedReasoningEfforts: [{reasoningEffort: 'low'}, {reasoningEffort: 'medium'}]}
     ]};
     Zotero.Research.call = async (method, data) => {
+      if (Zotero.Research.testClosed || method === 'status' && statusError === 'Zotero is unavailable') return realResearchCall(method, data);
+      if (method === 'duplicates') return {matches: []};
       if (method === 'settings') {
+        Zotero.Research.settingsReads++;
         if (Object.keys(data).length) throw new Error('The panel must never write global model settings');
         return Zotero.Research.testSettings;
       }
@@ -97,9 +104,16 @@ try {
   const tabID = await worker.evaluate(async url => (await browser.tabs.query({url}))[0].id, url);
   await worker.evaluate(async id => Zotero.Connector_Browser.onZoteroButtonElementClick(await browser.tabs.get(id)), tabID);
   let panel = await page.waitForFrame(f => f.url().includes('/research/panel.html'));
-  await panel.waitForFunction(() => !document.getElementById('error').hidden);
-  assert.equal(await panel.$eval('#error', n => n.textContent), 'Zotero is unavailable');
+  await panel.waitForSelector('#zoteroClosed:not([hidden])');
+  assert.equal(await panel.$eval('main', n => n.innerText.trim()), 'Open Zotero to use Zotero Research.');
+  assert.equal(await panel.$$eval('main button, main select, footer button', nodes => nodes.filter(n => n.getClientRects().length).length), 0);
+  assert.equal(await worker.evaluate(() => Zotero.Research.settingsReads), 0, 'Do not load models while Zotero is closed');
   assert.equal(await panel.$eval('#progress', n => n.hidden), true, 'A failed initial status check must stop connecting');
+  await (await panel.frameElement()).screenshot({path: output + '/zotero-panel-closed.png'});
+  await worker.evaluate(() => Zotero.Research.setStatusError(null));
+  await panel.evaluate(() => refresh());
+  assert.equal(await panel.$eval('#error', n => n.hidden), true);
+  await panel.waitForFunction(() => !document.getElementById('ingestionModel').disabled);
   const buttons = await panel.evaluate(() => ['entry', 'pdf', 'categorize', 'ordinary'].map(id => {
     const node = document.getElementById(id), rect = node.getBoundingClientRect();
     return {parent: node.parentElement.id, top: rect.top, bottom: rect.bottom};
@@ -107,10 +121,6 @@ try {
   assert.deepEqual(buttons.map(b => b.parent), ['actions', 'actions', 'actions', 'actions']);
   assert.equal(buttons[2].top - buttons[1].bottom, buttons[1].top - buttons[0].bottom);
   assert.equal(buttons[3].top - buttons[2].bottom, buttons[1].top - buttons[0].bottom);
-  await worker.evaluate(() => Zotero.Research.setStatusError(null));
-  await panel.evaluate(() => refresh());
-  assert.equal(await panel.$eval('#error', n => n.hidden), true);
-  await panel.waitForFunction(() => !document.getElementById('ingestionModel').disabled);
   assert.deepEqual(await panel.evaluate(() => ({model: $('ingestionModel').value, effort: $('ingestionEffort').value})),
     {model: 'gpt-6-astra', effort: 'xhigh'});
 
@@ -126,6 +136,14 @@ try {
   assert.ok(ready.scrollHeight <= ready.height, 'All four actions must fit without a scrollbar');
   await (await panel.frameElement()).screenshot({path: output + '/zotero-panel-ready.png'});
   assert.ok(await panel.evaluate(() => $('ingestionModel').getBoundingClientRect().top > $('ordinary').getBoundingClientRect().bottom), 'Selectors belong below all four actions');
+  await worker.evaluate(() => { Zotero.Research.testClosed = true; });
+  await panel.locator('#ordinary').click();
+  await panel.waitForSelector('#zoteroClosed:not([hidden])');
+  assert.equal(await panel.$$eval('main button, main select, footer button', nodes => nodes.filter(n => n.getClientRects().length).length), 0);
+  assert.equal(await worker.evaluate(() => Zotero.Research.ordinarySaves), 0, 'Closing Zotero before saving must not start the usual workflow');
+  await worker.evaluate(() => { Zotero.Research.testClosed = false; });
+  await panel.evaluate(() => refresh());
+  console.log('PASS: closed Zotero shows only the open-Zotero message and does not start a save or load models');
   await panel.select('#ingestionModel', 'other-model');
   assert.equal(await panel.$eval('#ingestionEffort', n => n.value), '', 'Require a supported effort when the previous effort is unavailable');
   assert.equal(await panel.$eval('#entry', n => n.disabled), true);
@@ -186,7 +204,7 @@ try {
   assert.deepEqual(await panel.$$eval('#categories, #approval, #paper, #chat', nodes => nodes.map(n => n.id)),
     ['categories', 'approval', 'paper', 'chat'], 'Category suggestions belong above the summary and discussion');
   assert.equal(await panel.$eval('#approval', n => n.hidden), false);
-  const approvalButtons = await panel.$$eval('.approval-actions button', nodes => nodes.map(n => ({text: n.textContent,
+  const approvalButtons = await panel.$$eval('#approval .approval-actions button', nodes => nodes.map(n => ({text: n.textContent,
     top: n.getBoundingClientRect().top, left: n.getBoundingClientRect().left, right: n.getBoundingClientRect().right})));
   assert.deepEqual(approvalButtons.map(b => b.text), ['Save choices', 'Skip new categories']);
   assert.equal(approvalButtons[0].top, approvalButtons[1].top, 'Review buttons share a row');

@@ -3,11 +3,39 @@ const $ = id => document.getElementById(id);
 let job, busy = false, timer, requestID = crypto.randomUUID(), approvalID, messageSnapshot, actionStartedAt, activeAction, categorySnapshot, categoryBusy = false;
 let panelMode = 'floating', minimizedScrollY = 0;
 let ingestionDefaults;
+let duplicateDecision;
 browser.runtime.onMessage.addListener(message => {
 	if (message?.research === 'preparing' && busy && activeAction === 'start') $('status').textContent = message.stage;
+	if (message?.research === 'duplicates' && busy) return confirmDuplicates(message.matches);
 });
+function confirmDuplicates(matches) {
+	const hidden = ['actions', 'paperChoice', 'progress'].map(id => [id, $(id).hidden]);
+	for (const [id] of hidden) $(id).hidden = true;
+	$('duplicateMatches').replaceChildren();
+	for (const match of matches) {
+		const title = document.createElement('p'), library = document.createElement('small');
+		title.textContent = match.title; library.textContent = match.library;
+		title.append(library); $('duplicateMatches').append(title);
+	}
+	$('duplicatePrompt').hidden = false;
+	$('duplicateCancel').focus();
+	return new Promise(resolve => {
+		duplicateDecision = confirmed => {
+			duplicateDecision = null;
+			$('duplicatePrompt').hidden = true;
+			for (const [id, value] of hidden) $(id).hidden = value;
+			resolve({confirmed});
+		};
+	});
+}
 async function call(action, data = {}) {
 	const result = await browser.runtime.sendMessage({research: 'panel', action, data});
+	if (result?.zoteroUnavailable) {
+		duplicateDecision?.(false);
+		document.body.dataset.connection = 'closed';
+		$('zoteroClosed').hidden = false;
+		clearTimeout(timer);
+	}
 	if (!result || result.error) throw new Error(result?.error || 'The Connector could not respond. Reload this page and try again.');
 	return result;
 }
@@ -303,21 +331,28 @@ function render(next) {
 	$('question').disabled = job.status === 'chatting';
 }
 async function refresh(reconnect = false) {
-	try { const result = await call('status', {id: job?.id, reconnect}); render(result.job); }
+	try {
+		const result = await call('status', {id: job?.id, reconnect});
+		document.body.dataset.connection = 'open'; $('zoteroClosed').hidden = true;
+		render(result.job);
+	}
 	catch (e) { render(job); error(e); }
 	clearTimeout(timer);
-	if (job && ['ingesting', 'chatting', 'summarizing'].includes(job.status)) timer = setTimeout(refresh, 1000);
+	if (!job && !ingestionDefaults && document.body.dataset.connection !== 'closed') loadIngestionSettings();
+	if (document.body.dataset.connection !== 'closed' && job && ['ingesting', 'chatting', 'summarizing'].includes(job.status)) timer = setTimeout(refresh, 1000);
 }
 async function act(action, data) {
 	if (busy) return;
 	if (action === 'start') $('ordinary').hidden = true;
 	busy = true; activeAction = action; actionStartedAt = Date.now(); $('error').hidden = true;
 	updateProgress();
-	for (const id of ['entry', 'pdf', 'categorize', 'approve', 'skip', 'retry', 'send', 'produceSummary']) $(id).disabled = true;
+	for (const id of ['entry', 'pdf', 'categorize', 'ordinary', 'approve', 'skip', 'retry', 'send', 'produceSummary']) $(id).disabled = true;
 	updateIngestionControls();
 	try {
 		$('status').textContent = action === 'start' ? 'Reading metadata and adding entry…' : 'Working…';
 		const result = await call(action, data);
+		if (result.cancelled) { $('ordinary').hidden = false; return; }
+		if (action === 'ordinary') { await call('close'); return; }
 		if (result.paperChoices) {
 			$('actions').hidden = true; $('paperChoice').hidden = false; $('paperChoices').replaceChildren();
 			for (const choice of result.paperChoices) {
@@ -337,7 +372,7 @@ async function act(action, data) {
 	} catch (e) { error(e); }
 	finally {
 		busy = false; activeAction = null; updateProgress();
-		for (const id of ['entry', 'pdf', 'categorize', 'approve', 'skip', 'retry']) $(id).disabled = false;
+		for (const id of ['entry', 'pdf', 'categorize', 'ordinary', 'approve', 'skip', 'retry']) $(id).disabled = false;
 		updateIngestionControls();
 		$('send').disabled = !!job && job.status !== 'ready';
 		$('produceSummary').disabled = job?.status !== 'ready';
@@ -348,11 +383,13 @@ $('pdf').onclick = () => startIngestion('pdf');
 $('categorize').onclick = () => startIngestion('categorize');
 $('ingestionModel').onchange = () => renderIngestionEfforts($('ingestionEffort').value);
 $('ingestionEffort').onchange = updateIngestionControls;
-$('close').onclick = () => call('close').catch(error);
+$('close').onclick = () => { duplicateDecision?.(false); call('close').catch(error); };
 $('dock').onclick = () => setPanelMode(panelMode === 'docked' ? 'floating' : 'docked');
 $('minimize').onclick = () => setPanelMode('minimized');
 $('restore').onclick = () => setPanelMode('docked');
-$('ordinary').onclick = () => call('ordinary').then(() => call('close')).catch(error);
+$('ordinary').onclick = () => act('ordinary', {});
+$('duplicateCancel').onclick = () => duplicateDecision?.(false);
+$('duplicateYes').onclick = () => duplicateDecision?.(true);
 $('approve').onclick = () => act('approve', {id: job.id, selected: [...$('proposals').querySelectorAll('input:checked')].map(input => Number(input.value))});
 $('skip').onclick = () => act('approve', {id: job.id, selected: []});
 $('produceSummary').onclick = () => act('summarize', {id: job.id});
@@ -376,7 +413,8 @@ document.addEventListener('pointerdown', event => {
 window.addEventListener('blur', () => { $('categoryPicker').open = false; });
 document.addEventListener('keydown', event => {
 	if (event.key !== 'Escape') return;
-	if ($('categoryPicker').open) { $('categoryPicker').open = false; $('categoryPicker').querySelector('summary').focus(); }
+	if (duplicateDecision) duplicateDecision(false);
+	else if ($('categoryPicker').open) { $('categoryPicker').open = false; $('categoryPicker').querySelector('summary').focus(); }
 	else if (!$('newCategoryForm').hidden) { if (!categoryBusy) { showNewCategory(false); $('newCategory').focus(); } }
 	else call('close').catch(error);
 });
@@ -387,7 +425,7 @@ $('copySession').onclick = async () => {
 let lastSize;
 function resizePanel() {
 	const height = Math.ceil(document.body.getBoundingClientRect().height);
-	const expanded = document.body.classList.contains('results');
+	const expanded = document.body.classList.contains('results') && document.body.dataset.connection !== 'closed';
 	const size = `${height}:${expanded}:${panelMode}`;
 	if (size === lastSize) return;
 	lastSize = size;
@@ -416,4 +454,4 @@ async function setPanelMode(mode) {
 }
 new ResizeObserver(() => { resizePanel()?.catch(console.error); }).observe(document.body);
 setInterval(updateActivity, 1000);
-refresh(true).then(() => { if (!job) loadIngestionSettings(); });
+refresh(true);

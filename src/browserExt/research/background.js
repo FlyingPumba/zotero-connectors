@@ -1,5 +1,15 @@
 /* global Zotero, browser */
 Zotero.Research = {
+	ordinaryChecks: new Map(),
+	async confirmDuplicates(tab, frameId, items, source) {
+		const {matches} = await this.call('duplicates', {items, source: {url: source?.url, pdfURLs: source?.pdfURLs}});
+		if (!matches.length) return true;
+		Zotero.Connector_Browser.setKeepServiceWorkerAlive(true);
+		try {
+			const result = await browser.tabs.sendMessage(tab.id, {research: 'duplicates', matches}, {frameId});
+			return result?.confirmed === true;
+		} finally { Zotero.Connector_Browser.setKeepServiceWorkerAlive(false); }
+	},
 	async show(tab) {
 		// Tabs left open across installation/reload have no live content-script listener.
 		await Zotero.Connector_Browser.injectTranslationScripts(tab);
@@ -88,7 +98,7 @@ Zotero.Research = {
 			return extracted;
 		} finally { await browser.tabs.remove(tab.id).catch(() => {}); }
 	},
-	async startFromTwitter(tab, data) {
+	async startFromTwitter(tab, data, frameId) {
 		const key = 'researchTwitter:' + tab.id;
 		let pending = (await browser.storage.session.get(key))[key];
 		if (pending?.requestID !== data.requestID || pending.pageURL !== tab.url) {
@@ -107,6 +117,7 @@ Zotero.Research = {
 		if (!chosen) return {paperChoices: pending.candidates};
 		await this.progress(tab, 'Reading the linked paper’s metadata…');
 		const extracted = await this.extractPaper(chosen.url);
+		if (!await this.confirmDuplicates(tab, frameId, [extracted.item], extracted.source)) return {cancelled: true};
 		const job = await this.call('start', {...data, ...extracted, twitterThread: pending.thread});
 		await browser.storage.session.set({['researchTab:' + tab.id]: {id: job.id, displayedURL: tab.url}});
 		await browser.storage.session.remove(key);
@@ -118,7 +129,10 @@ Zotero.Research = {
 			if (result.error) throw new Error(result.error);
 			return result;
 		} catch (e) {
-			if (e.status === 404 || e.status === 0) {
+			if (e.status === 0) {
+				throw Object.assign(new Error('Open Zotero to use Zotero Research.'), {zoteroUnavailable: true});
+			}
+			if (e.status === 404) {
 				throw new Error('Open Zotero with the Zotero Research plugin installed, then try again.');
 			}
 			throw e;
@@ -127,6 +141,12 @@ Zotero.Research = {
 };
 
 browser.runtime.onMessage.addListener((message, sender) => {
+	if (message?.research === 'checkDuplicates' && sender.tab) {
+		const frameId = Zotero.Research.ordinaryChecks.get(sender.tab.id);
+		if (frameId === undefined) return Promise.resolve({error: 'The save panel is no longer open. Try again.'});
+		return Zotero.Research.confirmDuplicates(sender.tab, frameId, message.items, message.source)
+			.then(confirmed => ({confirmed})).catch(error => ({error: error.message, zoteroUnavailable: error.zoteroUnavailable}));
+	}
 	if (!message || message.research !== 'panel') return;
 	// The web page cannot send privileged commands through the panel's message bridge.
 	if (!sender.tab || !sender.url?.startsWith(browser.runtime.getURL('research/panel.html'))) return;
@@ -139,12 +159,22 @@ browser.runtime.onMessage.addListener((message, sender) => {
 		if (message.action === 'resize') return browser.tabs.sendMessage(tab.id, {research: 'resize', height: data.height, expanded: data.expanded, mode: data.mode}, {frameId: 0});
 		if (message.action === 'close') return browser.tabs.sendMessage(tab.id, {research: 'hide'}, {frameId: 0});
 		if (message.action === 'ordinary') {
+			// Check the local plugin before the usual workflow can offer an online save.
+			await Zotero.Research.call('duplicates', {items: []});
 			const info = Zotero.Connector_Browser.getTabInfo(tab.id);
-			if (info.translators?.length) await Zotero.Connector_Browser.saveWithTranslator(tab, 0, {fallbackOnFailure: true});
-			else if (info.isPDF) await Zotero.Connector_Browser.saveAsWebpage(tab, info.frameId, {snapshot: true});
-			else await Zotero.Connector_Browser.saveAsWebpage(tab, 0, {snapshot: Zotero.Connector.isOnline
-				? Zotero.Connector.prefs.automaticSnapshots : Zotero.Prefs.get('automaticSnapshots')});
-			return {ok: true};
+			Zotero.Research.ordinaryChecks.set(tab.id, sender.frameId);
+			Zotero.Connector_Browser.setKeepServiceWorkerAlive(true);
+			try {
+				let result;
+				if (info.translators?.length) result = await Zotero.Connector_Browser.saveWithTranslator(tab, 0, {fallbackOnFailure: true, researchDuplicateCheck: true});
+				else result = await Zotero.Connector_Browser.saveAsWebpage(tab, info.isPDF ? info.frameId : 0, {
+					researchDuplicateCheck: true, snapshot: info.isPDF || (Zotero.Connector.isOnline
+						? Zotero.Connector.prefs.automaticSnapshots : Zotero.Prefs.get('automaticSnapshots'))});
+				return result?.cancelled || result?.error ? result : {ok: true};
+			} finally {
+				Zotero.Research.ordinaryChecks.delete(tab.id);
+				Zotero.Connector_Browser.setKeepServiceWorkerAlive(false);
+			}
 		}
 		if (message.action === 'status') {
 			const binding = (await browser.storage.session.get('researchTab:' + tab.id))['researchTab:' + tab.id];
@@ -163,7 +193,7 @@ browser.runtime.onMessage.addListener((message, sender) => {
 			if (Zotero.Research.isTwitter(tab.url)) {
 				Zotero.Connector_Browser.setKeepServiceWorkerAlive(true);
 				try {
-					if (message.action === 'start') return await Zotero.Research.startFromTwitter(tab, data);
+					if (message.action === 'start') return await Zotero.Research.startFromTwitter(tab, data, sender.frameId);
 					const {job} = await Zotero.Research.call('status', {id: data.id});
 					const extracted = await Zotero.Research.extractPaper(job.url, false);
 					return await Zotero.Research.call(message.action, {...data, source: extracted.source});
@@ -172,10 +202,11 @@ browser.runtime.onMessage.addListener((message, sender) => {
 			const extracted = await browser.tabs.sendMessage(tab.id,
 				{research: 'extract', metadata: message.action === 'start'}, {frameId: 0});
 			if (!extracted || extracted.error) throw new Error(extracted?.error || 'Could not read this page. Reload it and try again.');
+			if (message.action === 'start' && !await Zotero.Research.confirmDuplicates(tab, sender.frameId, [extracted.item], extracted.source)) return {cancelled: true};
 			return Zotero.Research.call(message.action, {...data, ...extracted});
 		}
 		throw new Error('Unknown paper action.');
-	})().catch(error => ({error: error.message}));
+	})().catch(error => ({error: error.message, zoteroUnavailable: error.zoteroUnavailable}));
 });
 
 // Zotero opens a local landing page with an opaque token. Only the extension

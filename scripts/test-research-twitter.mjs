@@ -102,6 +102,7 @@ try {
       return originalFetch(url, options);
     };
     Zotero.Research.call = async (method, data) => {
+      if (method === 'duplicates') return {matches: []};
       if (method === 'settings') return {model: 'gpt-6-astra', effort: 'xhigh', models: [
         {model: 'gpt-6-astra', supportedReasoningEfforts: [{reasoningEffort: 'high'}, {reasoningEffort: 'xhigh'}]}
       ]};
