@@ -109,6 +109,7 @@ try {
     Zotero.Research.pdfStarts = [];
     Zotero.Research.ordinarySaves = [];
     Zotero.Research.call = async (method, data) => {
+      if (method === 'duplicates') return {matches: []};
       if (method === 'settings') return Zotero.Research.testSettings;
       if (method === 'status') return {job: Zotero.Research.pdfJob};
       if (method === 'start') {
@@ -137,7 +138,10 @@ try {
     const pdfTarget = targets.targetInfos.find(t => t.url === pdfURL).targetId;
     await client.send('Extensions.triggerAction', {id, targetId: pdfTarget});
     const pdfPanel = await pdfPage.waitForFrame(f => f.url().includes('/research/panel.html'));
-    await pdfPanel.waitForFunction(() => document.getElementById('progress').hidden);
+    await pdfPanel.waitForFunction(() => document.getElementById('progress').hidden).catch(async error => {
+      console.log({mode, pdfURL, panel: await pdfPanel.evaluate(() => document.body.innerText), errors});
+      throw error;
+    });
     assert.equal(await worker.evaluate(() => Zotero.Research.ordinarySaves.length), 0, 'Opening the toolbar must not save a PDF automatically');
     assert.equal(await pdfPanel.$eval('#entry', n => n.getClientRects().length > 0), true);
     assert.equal(await pdfPanel.$eval('#pdf', n => n.getClientRects().length > 0), true);
@@ -150,7 +154,7 @@ try {
       const [saved] = await worker.evaluate(() => Zotero.Research.ordinarySaves);
       assert.equal(saved.url, pdfURL);
       assert.equal(saved.frameId, info.frameId);
-      assert.deepEqual(saved.options, {snapshot: true}, 'Usual workflow keeps the original PDF save options');
+      assert.deepEqual(saved.options, {snapshot: true, researchDuplicateCheck: true}, 'Usual workflow keeps the original PDF save options and checks duplicates');
     } else {
       await pdfPanel.waitForFunction(() => job?.status === 'ready' && !busy);
       const request = await worker.evaluate(() => Zotero.Research.pdfStarts.at(-1));

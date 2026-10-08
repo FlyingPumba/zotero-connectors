@@ -54,6 +54,23 @@ function determineAttachmentType(attachment) {
 let PageSaving = {
 	sessionDetails: {},
 	translators: [],
+
+	async _checkResearchDuplicates(items) {
+		if (!this.sessionDetails.saveOptions?.researchDuplicateCheck) return true;
+		await Zotero.Messaging.sendMessage('progressWindow.close', null);
+		try {
+			const result = await browser.runtime.sendMessage({research: 'checkDuplicates', items,
+				source: {url: document.location.href}});
+			if (!result || result.error) throw Object.assign(new Error(result?.error || 'Could not check Zotero for duplicates. Try again.'),
+				{zoteroUnavailable: result?.zoteroUnavailable});
+			if (!result.confirmed) { this._clearSession(); return false; }
+			return true;
+		} catch (error) {
+			error.researchDuplicateCheck = true;
+			this._clearSession();
+			throw error;
+		}
+	},
 	
 	/**
 	 * @param itemType
@@ -307,6 +324,8 @@ let PageSaving = {
 			if (proxy) proxy = new Zotero.Proxy(proxy);
 		}
 		items = this._processNote(items);
+		if (!await this._checkResearchDuplicates(items)) return {cancelled: true};
+		if (this.sessionDetails.saveOptions?.researchDuplicateCheck) Zotero.Messaging.sendMessage('progressWindow.show', [sessionID]);
 		this.sessionDetails.items = items;
 		let itemType = translators[0].itemType;
 		let itemSaver = new Zotero.ItemSaver({ sessionID, itemType, baseURI: document.location.href, proxy });
@@ -323,6 +342,7 @@ let PageSaving = {
 	 * @returns {Promise<*>}
 	 */
 	async saveAsWebpage({ title=document.title, snapshot: saveSnapshot=true } = {}) {
+		if (!await this._checkResearchDuplicates([{title, url: document.location.href}])) return {cancelled: true};
 		var result = await Zotero.Inject.checkActionToServer();
 		if (!result) return;
 
@@ -595,9 +615,11 @@ let PageSaving = {
 				translators = translators.slice(0, 1)
 			}
 			let items = await this.translateAndSave(translators, options.fallbackOnFailure);
+			if (items?.cancelled) return items;
 			Zotero.Messaging.sendMessage("progressWindow.done", [true]);
 			return items;
 		} catch (e) {
+			if (e.researchDuplicateCheck) return {error: e.message, zoteroUnavailable: e.zoteroUnavailable};
 			Zotero.logError(e);
 			// Clear session details on failure, so another save click tries again
 			this._clearSession();

@@ -12,12 +12,18 @@
   </div>
 </header>
 <main>
-  <section id="actions">
+  <p id="zoteroClosed" role="status" hidden>Open Zotero to use Zotero Research.</p>
+  <section id="actions" hidden>
     <button id="entry">Add entry &amp; Summarize</button><button id="pdf" class="secondary">Add PDF &amp; Summarize</button><button id="categorize" class="secondary">Add entry</button><button id="ordinary" class="secondary">Save with usual workflow</button>
     <div class="ingestion-settings">
       <label for="ingestionModel">Model<select id="ingestionModel" disabled><option value="">Settings default</option></select></label>
       <label for="ingestionEffort">Reasoning effort<select id="ingestionEffort" disabled><option value="">Settings default</option></select></label>
     </div>
+  </section>
+  <section id="duplicatePrompt" hidden aria-labelledby="duplicateHeading">
+    <h2 id="duplicateHeading">This entry already exists in Zotero.</h2>
+    <div id="duplicateMatches"></div><p>Add it anyway?</p>
+    <div class="approval-actions"><button id="duplicateCancel" class="secondary">Cancel</button><button id="duplicateYes">Yes</button></div>
   </section>
   <section id="paperChoice" hidden><h2>Which URL is the paper?</h2><p>Choose the paper’s page or PDF from the links in this thread.</p><div id="paperChoices"></div></section>
   <div id="progress" role="status" aria-live="polite"><span id="activity" aria-hidden="true"></span><div><p id="status">Connecting to Zotero…</p><p id="elapsed" aria-live="off" hidden></p></div></div>
