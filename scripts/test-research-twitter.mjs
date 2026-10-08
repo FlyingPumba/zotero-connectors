@@ -102,6 +102,9 @@ try {
       return originalFetch(url, options);
     };
     Zotero.Research.call = async (method, data) => {
+      if (method === 'settings') return {model: 'gpt-6-astra', effort: 'xhigh', models: [
+        {model: 'gpt-6-astra', supportedReasoningEfforts: [{reasoningEffort: 'high'}, {reasoningEffort: 'xhigh'}]}
+      ]};
       if (method === 'status') return {job: data.id ? Zotero.Research.testJob : null};
       if (method === 'start') {
         // Match the native plugin's request validation, including the required title.
@@ -144,6 +147,8 @@ try {
   }
   for (const mode of ['entry', 'pdf', 'categorize']) {
     const {panel} = await openPanel();
+    await panel.waitForFunction(() => !document.getElementById('ingestionEffort').disabled);
+    await panel.select('#ingestionEffort', 'high');
     const count = await worker.evaluate(() => Zotero.Research.testStarts.length);
     await panel.locator('#' + mode).click();
     await panel.waitForSelector('#paperChoice:not([hidden])');
@@ -158,6 +163,7 @@ try {
     assert.equal(await panel.$eval('#error', e => e.hidden ? '' : e.textContent), '');
     const request = await worker.evaluate(() => Zotero.Research.testStarts.at(-1));
     assert.equal(request.mode, mode); assert.equal(request.source.url, paperURL);
+    assert.deepEqual(request.ingestionSettings, {model: 'gpt-6-astra', effort: 'high'}, 'The override survives the Twitter paper chooser');
     assert.equal(request.item.title, 'Linked research paper');
     assert.equal(request.twitterThread.posts.length, 2, 'Exclude replies, including later author replies');
     assert.ok(request.twitterThread.posts[0].links.some(link => link.url === 'https://x.com/colleague'), 'Keep excluded candidate links in the saved thread');
