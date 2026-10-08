@@ -26,13 +26,22 @@ try {
     let currentJob = null, statusError = 'Zotero is unavailable';
     Zotero.Research.setStatusError = message => { statusError = message; };
     Zotero.Research.setTestJob = job => { currentJob = job; };
+    Zotero.Research.testSettings = {model: 'gpt-6-astra', effort: 'xhigh', models: [
+      {model: 'gpt-6-astra', displayName: 'GPT-6-Astra', supportedReasoningEfforts: [{reasoningEffort: 'high'}, {reasoningEffort: 'xhigh'}]},
+      {model: 'other-model', displayName: 'Other model', supportedReasoningEfforts: [{reasoningEffort: 'low'}, {reasoningEffort: 'medium'}]}
+    ]};
     Zotero.Research.call = async (method, data) => {
+      if (method === 'settings') {
+        if (Object.keys(data).length) throw new Error('The panel must never write global model settings');
+        return Zotero.Research.testSettings;
+      }
       if (method === 'status') {
         if (statusError) throw new Error(statusError);
         return {job: currentJob};
       }
       if (method === 'command') return {command: 'codex resume ' + currentJob.threadId};
       if (method === 'start') {
+        Zotero.Research.lastStart = data;
         currentJob = {id: 'ui-test', status: 'ingesting', stage: 'Reading paper and writing summary',
           mode: data.mode, title: 'Paper preview', model: 'gpt-6-astra', messages: [],
           createdAt: new Date(Date.now() - 125000).toISOString(),
@@ -101,18 +110,27 @@ try {
   await worker.evaluate(() => Zotero.Research.setStatusError(null));
   await panel.evaluate(() => refresh());
   assert.equal(await panel.$eval('#error', n => n.hidden), true);
+  await panel.waitForFunction(() => !document.getElementById('ingestionModel').disabled);
+  assert.deepEqual(await panel.evaluate(() => ({model: $('ingestionModel').value, effort: $('ingestionEffort').value})),
+    {model: 'gpt-6-astra', effort: 'xhigh'});
 
   await panel.waitForFunction(() => document.getElementById('progress').hidden && innerHeight === Math.ceil(document.body.getBoundingClientRect().height));
   const ready = await panel.evaluate(() => ({width: innerWidth, height: innerHeight, text: document.body.innerText,
-    scrollHeight: document.documentElement.scrollHeight, bottomGap: innerHeight - document.getElementById('ordinary').getBoundingClientRect().bottom,
+    scrollHeight: document.documentElement.scrollHeight, bottomGap: innerHeight - document.getElementById('ingestionEffort').getBoundingClientRect().bottom,
     buttons: [...document.querySelectorAll('main button, footer button')].filter(b => b.offsetHeight).map(b => b.textContent)}));
   assert.deepEqual(ready.buttons, ['Add entry & Summarize', 'Add PDF & Summarize', 'Add entry', 'Save with usual workflow']);
   assert.ok(!ready.text.includes('A concise research') && !ready.text.includes('Ready'));
   assert.equal(ready.width, 360);
-  assert.ok(ready.height >= 300 && ready.height < 360, JSON.stringify(ready));
+  assert.ok(ready.height >= 380 && ready.height < 440, JSON.stringify(ready));
   assert.ok(ready.bottomGap >= 24, JSON.stringify(ready));
   assert.ok(ready.scrollHeight <= ready.height, 'All four actions must fit without a scrollbar');
   await (await panel.frameElement()).screenshot({path: output + '/zotero-panel-ready.png'});
+  assert.ok(await panel.evaluate(() => $('ingestionModel').getBoundingClientRect().top > $('ordinary').getBoundingClientRect().bottom), 'Selectors belong below all four actions');
+  await panel.select('#ingestionModel', 'other-model');
+  assert.equal(await panel.$eval('#ingestionEffort', n => n.value), '', 'Require a supported effort when the previous effort is unavailable');
+  assert.equal(await panel.$eval('#entry', n => n.disabled), true);
+  assert.equal(await panel.$eval('#ordinary', n => n.disabled), false, 'Model choice never blocks ordinary saving');
+  await panel.select('#ingestionEffort', 'medium');
   // Ordinary saving is an initial choice, not an action on an ingested paper.
   const ordinaryClosed = new Promise(resolve => page.on('framedetached', frame => { if (frame === panel) resolve(); }));
   await panel.focus('#ordinary');
@@ -122,7 +140,9 @@ try {
   assert.equal(await worker.evaluate(() => Zotero.Research.ordinarySaves), 1);
   await worker.evaluate(async id => Zotero.Connector_Browser.onZoteroButtonElementClick(await browser.tabs.get(id)), tabID);
   panel = await page.waitForFrame(f => f.url().includes('/research/panel.html'));
-  await panel.waitForFunction(() => document.getElementById('progress').hidden);
+  await panel.waitForFunction(() => document.getElementById('progress').hidden && !document.getElementById('ingestionModel').disabled);
+  assert.deepEqual(await panel.evaluate(() => ({model: $('ingestionModel').value, effort: $('ingestionEffort').value})),
+    {model: 'gpt-6-astra', effort: 'xhigh'}, 'The page choice must not overwrite settings for the next panel');
   assert.equal(await panel.$eval('#entry', button => {
     button.click();
     return document.getElementById('ordinary').getClientRects().length;
@@ -134,6 +154,7 @@ try {
   const progress = await panel.evaluate(() => ({height: innerHeight, elapsed: document.getElementById('elapsed').textContent,
     stage: document.getElementById('status').textContent, active: !document.getElementById('activity').hidden}));
   assert.ok(progress.active && progress.stage.startsWith('Codex:'));
+  assert.equal(await worker.evaluate(() => Zotero.Research.lastStart.ingestionSettings), undefined, 'Default ingestion continues to use saved settings');
   assert.equal(await panel.$eval('#progress', n => n.nextElementSibling.id), 'error', 'Ingestion progress stays above the paper');
   assert.equal(await panel.$eval('#ordinary', n => n.getClientRects().length), 0);
   assert.ok(progress.elapsed.includes('gpt-6-astra'));
@@ -511,9 +532,14 @@ $$\begin{pmatrix}a & b \\ c & d\end{pmatrix}$$
   await worker.evaluate(() => Zotero.Research.setTestJob(null));
   await worker.evaluate(async id => Zotero.Research.show(await browser.tabs.get(id)), tabID);
   panel = await page.waitForFrame(f => f.url().includes('/research/panel.html'));
-  await panel.waitForFunction(() => document.getElementById('progress').hidden);
+  await panel.waitForFunction(() => document.getElementById('progress').hidden && !document.getElementById('ingestionModel').disabled);
+  await panel.select('#ingestionModel', 'other-model');
+  await panel.select('#ingestionEffort', 'medium');
   await panel.locator('#categorize').click();
   await panel.waitForFunction(() => job?.mode === 'categorize' && job.status === 'ready' && !busy);
+  assert.deepEqual(await worker.evaluate(() => Zotero.Research.lastStart.ingestionSettings), {model: 'other-model', effort: 'medium'});
+  assert.deepEqual(await worker.evaluate(() => ({model: Zotero.Research.testSettings.model, effort: Zotero.Research.testSettings.effort})),
+    {model: 'gpt-6-astra', effort: 'xhigh'}, 'Ingestion must not change the saved defaults');
   assert.equal(await panel.$eval('#summary', n => n.hidden), true);
   assert.equal(await panel.$eval('#produceSummary', n => n.hidden || n.disabled), false);
   assert.equal(await panel.$eval('#send', n => n.disabled), false);

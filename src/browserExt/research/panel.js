@@ -2,6 +2,7 @@
 const $ = id => document.getElementById(id);
 let job, busy = false, timer, requestID = crypto.randomUUID(), approvalID, messageSnapshot, actionStartedAt, activeAction, categorySnapshot, categoryBusy = false;
 let panelMode = 'floating', minimizedScrollY = 0;
+let ingestionDefaults;
 browser.runtime.onMessage.addListener(message => {
 	if (message?.research === 'preparing' && busy && activeAction === 'start') $('status').textContent = message.stage;
 });
@@ -11,6 +12,51 @@ async function call(action, data = {}) {
 	return result;
 }
 function error(e) { $('error').textContent = e.message; $('error').hidden = false; }
+async function loadIngestionSettings() {
+	try {
+		ingestionDefaults = await call('settings');
+		const select = $('ingestionModel');
+		select.replaceChildren();
+		for (const model of ingestionDefaults.models) select.add(new Option(model.displayName || model.model, model.model));
+		if (![...select.options].some(option => option.value === ingestionDefaults.model)) {
+			select.add(new Option(ingestionDefaults.model, ingestionDefaults.model));
+		}
+		select.value = ingestionDefaults.model;
+		renderIngestionEfforts(ingestionDefaults.effort);
+	} catch (e) {
+		ingestionDefaults = null;
+		if (!job && !busy) error(e);
+	} finally { updateIngestionControls(); }
+}
+function renderIngestionEfforts(preferred) {
+	const model = ingestionDefaults.models.find(model => model.model === $('ingestionModel').value);
+	const labels = {none: 'None', minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Maximum', ultra: 'Ultra'};
+	const select = $('ingestionEffort');
+	select.replaceChildren();
+	for (const option of model?.supportedReasoningEfforts || []) {
+		select.add(new Option(labels[option.reasoningEffort] || option.reasoningEffort, option.reasoningEffort));
+	}
+	if ($('ingestionModel').value === ingestionDefaults.model && ![...select.options].some(option => option.value === ingestionDefaults.effort)) {
+		select.add(new Option(labels[ingestionDefaults.effort] || ingestionDefaults.effort, ingestionDefaults.effort));
+	}
+	if (![...select.options].some(option => option.value === preferred)) {
+		select.add(new Option('Choose effort', ''), 0);
+		preferred = '';
+	}
+	select.value = preferred;
+	updateIngestionControls();
+}
+function updateIngestionControls() {
+	for (const id of ['ingestionModel', 'ingestionEffort']) $(id).disabled = busy || !ingestionDefaults;
+	for (const id of ['entry', 'pdf', 'categorize']) $(id).disabled = busy || !!ingestionDefaults && !$('ingestionEffort').value;
+}
+function startIngestion(mode) {
+	const data = {mode, requestID};
+	if (ingestionDefaults && ($('ingestionModel').value !== ingestionDefaults.model || $('ingestionEffort').value !== ingestionDefaults.effort)) {
+		data.ingestionSettings = {model: $('ingestionModel').value, effort: $('ingestionEffort').value};
+	}
+	return act('start', data);
+}
 async function describePaperChoice(choice, title, url) {
 	const linkLabel = choice.label?.trim();
 	const fallback = linkLabel && !/^(?:https?:\/\/|www\.)/i.test(linkLabel) ? linkLabel : 'Title unavailable';
@@ -268,6 +314,7 @@ async function act(action, data) {
 	busy = true; activeAction = action; actionStartedAt = Date.now(); $('error').hidden = true;
 	updateProgress();
 	for (const id of ['entry', 'pdf', 'categorize', 'approve', 'skip', 'retry', 'send', 'produceSummary']) $(id).disabled = true;
+	updateIngestionControls();
 	try {
 		$('status').textContent = action === 'start' ? 'Reading metadata and adding entry…' : 'Working…';
 		const result = await call(action, data);
@@ -291,13 +338,16 @@ async function act(action, data) {
 	finally {
 		busy = false; activeAction = null; updateProgress();
 		for (const id of ['entry', 'pdf', 'categorize', 'approve', 'skip', 'retry']) $(id).disabled = false;
+		updateIngestionControls();
 		$('send').disabled = !!job && job.status !== 'ready';
 		$('produceSummary').disabled = job?.status !== 'ready';
 	}
 }
-$('entry').onclick = () => act('start', {mode: 'entry', requestID});
-$('pdf').onclick = () => act('start', {mode: 'pdf', requestID});
-$('categorize').onclick = () => act('start', {mode: 'categorize', requestID});
+$('entry').onclick = () => startIngestion('entry');
+$('pdf').onclick = () => startIngestion('pdf');
+$('categorize').onclick = () => startIngestion('categorize');
+$('ingestionModel').onchange = () => renderIngestionEfforts($('ingestionEffort').value);
+$('ingestionEffort').onchange = updateIngestionControls;
 $('close').onclick = () => call('close').catch(error);
 $('dock').onclick = () => setPanelMode(panelMode === 'docked' ? 'floating' : 'docked');
 $('minimize').onclick = () => setPanelMode('minimized');
@@ -366,4 +416,4 @@ async function setPanelMode(mode) {
 }
 new ResizeObserver(() => { resizePanel()?.catch(console.error); }).observe(document.body);
 setInterval(updateActivity, 1000);
-refresh(true);
+refresh(true).then(() => { if (!job) loadIngestionSettings(); });
