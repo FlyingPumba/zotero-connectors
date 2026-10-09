@@ -67,6 +67,13 @@ if (Zotero.isManifestV3 && window.top === window) {
 			let item;
 			if (message.detect) await Zotero.PageSaving.onPageLoad();
 			let translators = Zotero.PageSaving.translators;
+			// The generic DOI translator reports "multiple" for references found
+			// anywhere on a page, even a single citation in a tutorial. Those are
+			// not metadata for the page itself. Keep ordinary saving unchanged.
+			if (translators?.[0]?.itemType === 'multiple'
+				&& translators[0].translatorID === 'c159dcfe-8a53-4301-a499-30f6549c340d') {
+				translators = translators.slice(1);
+			}
 			const alignmentForumPost = isForumPost() && /(^|\.)alignmentforum\.org$/.test(location.hostname);
 			if (alignmentForumPost) {
 				// ForumMagnum supports this site's API, but its URL matcher currently
