@@ -63,6 +63,7 @@ function createMutationObserver(tabId, frameId) {
 Zotero.OffscreenTranslate = {
 	translateInstances: {},
 	selectCallbacks: {},
+	deferredErrors: new Set(),
 	init: function() {
 		// Default passthrough handlers for translate methods
 		for (let method in Zotero.Translate.Web.prototype) {
@@ -73,6 +74,24 @@ Zotero.OffscreenTranslate = {
 		
 		// No-op (but the addMessageListener() initializes a translate if needed)
 		this.addMessageListener('Translate.new', () => 0);
+		this.addMessageListener('Translate.translate', async (translate, args) => {
+			if (!args[0]?.deferErrorLogging) return translate.translate(...args);
+			const complete = translate.complete;
+			const ownComplete = Object.hasOwn(translate, 'complete');
+			const deferredErrors = this.deferredErrors;
+			translate.complete = function(returnValue, error) {
+				// Base.complete logs synchronously before the caller can try the
+				// next translator. Defer only this error, during that exact call.
+				deferredErrors.add(error);
+				try { return complete.call(this, returnValue, error); }
+				finally { deferredErrors.delete(error); }
+			};
+			try { return await translate.translate(...args); }
+			finally {
+				if (ownComplete) translate.complete = complete;
+				else delete translate.complete;
+			}
+		});
 		// Not part of translate API, but we need to be able to return this to translate
 		// client
 		this.addMessageListener('Translate.getProxy', (translate) => translate._proxy?.toJSON());
