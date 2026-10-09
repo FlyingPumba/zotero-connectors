@@ -33,7 +33,7 @@
   },
   "scripts": {
     "test": "mocha",
-    "test:research": "bash build.sh -p b -d && node scripts/test-research-toolbar.mjs && node scripts/test-research-panel.mjs && node scripts/test-research-twitter.mjs && node scripts/test-research-lesswrong.mjs && node scripts/test-research-anthropic.mjs && node scripts/test-research-settings.mjs && node scripts/test-research-duplicates.mjs && node scripts/test-research-webpage.mjs && node scripts/test-singlefile-fetch.mjs && node scripts/test-research-content.mjs",
+    "test:research": "bash build.sh -p b -d && node --test scripts/test-offscreen-lifecycle.mjs && node scripts/test-offscreen-lifecycle-browser.mjs && node scripts/test-research-toolbar.mjs && node scripts/test-research-panel.mjs && node scripts/test-research-twitter.mjs && node scripts/test-research-lesswrong.mjs && node scripts/test-research-anthropic.mjs && node scripts/test-research-settings.mjs && node scripts/test-research-duplicates.mjs && node scripts/test-research-webpage.mjs && node scripts/test-singlefile-fetch.mjs && node scripts/test-research-content.mjs",
     "update-single-file": "scripts/update-single-file"
   }
 }
