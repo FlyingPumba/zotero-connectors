@@ -63,7 +63,13 @@ if (Zotero.isManifestV3 && window.top === window) {
 			if (/^(www\.)?arxiv\.org$/.test(location.hostname) && location.pathname.startsWith('/abs/')) source.pdfURLs.push('https://arxiv.org/pdf/' + location.pathname.slice(5));
 			const isPDF = /\.pdf(?:$|[?#])/i.test(location.href) || document.contentType === 'application/pdf';
 			if (isPDF) source.pdfURLs.push(location.href);
-			if (!message.metadata) return {source};
+			const withSnapshot = async () => {
+				if (message.snapshot && !source.pdfURLs.length) {
+					source.snapshotContent = await Zotero.SingleFile.retrievePageData();
+				}
+				return source;
+			};
+			if (!message.metadata) return {source: await withSnapshot()};
 			let item;
 			if (message.detect) await Zotero.PageSaving.onPageLoad();
 			let translators = Zotero.PageSaving.translators;
@@ -127,7 +133,7 @@ if (Zotero.isManifestV3 && window.top === window) {
 				source.pdfURLs.push('https://arxiv.org/pdf/' + location.pathname.slice(5));
 			}
 			source.pdfURLs = [...new Set(source.pdfURLs)];
-			return {item: {...item, attachments: []}, source};
+			return {item: {...item, attachments: []}, source: await withSnapshot()};
 		})().catch(error => ({error: error.message}));
 	});
 }

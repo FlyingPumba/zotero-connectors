@@ -81,7 +81,7 @@ Zotero.Research = {
 			if (response.body && !response.bodyUsed) await response.body.cancel().catch(() => {});
 		}
 	},
-	async extractPaper(url, metadata = true) {
+	async extractPaper(url, metadata = true, snapshot = false) {
 		const tab = await browser.tabs.create({url, active: false});
 		try {
 			await new Promise((resolve, reject) => {
@@ -93,7 +93,7 @@ Zotero.Research = {
 				browser.tabs.get(tab.id).then(current => { if (current.status === 'complete') done(); }).catch(done);
 			});
 			await Zotero.Connector_Browser.injectTranslationScripts(await browser.tabs.get(tab.id));
-			const extracted = await browser.tabs.sendMessage(tab.id, {research: 'extract', metadata, detect: true}, {frameId: 0});
+			const extracted = await browser.tabs.sendMessage(tab.id, {research: 'extract', metadata, detect: true, snapshot}, {frameId: 0});
 			if (!extracted || extracted.error) throw new Error(extracted?.error || 'Could not read the linked paper.');
 			return extracted;
 		} finally { await browser.tabs.remove(tab.id).catch(() => {}); }
@@ -116,7 +116,7 @@ Zotero.Research = {
 			: onlyLink && /^https:\/\/arxiv\.org\/abs\//.test(onlyLink.url) ? onlyLink : null;
 		if (!chosen) return {paperChoices: pending.candidates};
 		await this.progress(tab, 'Reading the linked paper’s metadata…');
-		const extracted = await this.extractPaper(chosen.url);
+		const extracted = await this.extractPaper(chosen.url, true, data.mode === 'pdf');
 		if (!await this.confirmDuplicates(tab, frameId, [extracted.item], extracted.source)) return {cancelled: true};
 		const job = await this.call('start', {...data, ...extracted, twitterThread: pending.thread});
 		await browser.storage.session.set({['researchTab:' + tab.id]: {id: job.id, displayedURL: tab.url}});
@@ -189,18 +189,20 @@ browser.runtime.onMessage.addListener((message, sender) => {
 			if (job?.threadId && !job.sessionMissing) return Zotero.Research.call(message.action, data);
 		}
 		if (['start', 'chat', 'retry', 'summarize'].includes(message.action)) {
-			await Zotero.Research.call('status', {url: tab.url});
+			const {job: currentJob} = await Zotero.Research.call('status', {id: data.id, url: tab.url});
+			const snapshot = message.action === 'start' ? data.mode === 'pdf'
+				: message.action === 'retry' && currentJob?.mode === 'pdf' && !currentJob.attachmentKey && !currentJob.source?.pdfURLs?.length;
 			if (Zotero.Research.isTwitter(tab.url)) {
 				Zotero.Connector_Browser.setKeepServiceWorkerAlive(true);
 				try {
 					if (message.action === 'start') return await Zotero.Research.startFromTwitter(tab, data, sender.frameId);
 					const {job} = await Zotero.Research.call('status', {id: data.id});
-					const extracted = await Zotero.Research.extractPaper(job.url, false);
+					const extracted = await Zotero.Research.extractPaper(job.url, false, snapshot);
 					return await Zotero.Research.call(message.action, {...data, source: extracted.source});
 				} finally { Zotero.Connector_Browser.setKeepServiceWorkerAlive(false); }
 			}
 			const extracted = await browser.tabs.sendMessage(tab.id,
-				{research: 'extract', metadata: message.action === 'start'}, {frameId: 0});
+				{research: 'extract', metadata: message.action === 'start', snapshot}, {frameId: 0});
 			if (!extracted || extracted.error) throw new Error(extracted?.error || 'Could not read this page. Reload it and try again.');
 			if (message.action === 'start' && !await Zotero.Research.confirmDuplicates(tab, sender.frameId, [extracted.item], extracted.source)) return {cancelled: true};
 			return Zotero.Research.call(message.action, {...data, ...extracted});

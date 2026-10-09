@@ -128,7 +128,7 @@ try {
   const ready = await panel.evaluate(() => ({width: innerWidth, height: innerHeight, text: document.body.innerText,
     scrollHeight: document.documentElement.scrollHeight, bottomGap: innerHeight - document.getElementById('ingestionEffort').getBoundingClientRect().bottom,
     buttons: [...document.querySelectorAll('main button, footer button')].filter(b => b.offsetHeight).map(b => b.textContent)}));
-  assert.deepEqual(ready.buttons, ['Add entry & Summarize', 'Add PDF & Summarize', 'Add entry', 'Save with usual workflow']);
+  assert.deepEqual(ready.buttons, ['Add entry & Summarize', 'Add entry with content & Summarize', 'Add entry', 'Save with usual workflow']);
   assert.ok(!ready.text.includes('A concise research') && !ready.text.includes('Ready'));
   assert.equal(ready.width, 360);
   assert.ok(ready.height >= 380 && ready.height < 440, JSON.stringify(ready));
