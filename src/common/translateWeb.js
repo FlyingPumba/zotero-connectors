@@ -101,28 +101,40 @@ let TranslateWeb = {
 			translators = await translate.getTranslators(true);
 		}
 		
-		while (true) {
-			let translator = translators.shift();
-			translate.setTranslator(translator);
-			try {
-				let items = await translate.translate();
-				return {
-					items,
-					proxy: translate._proxy
-				};
-			} catch (e) {
-				if (translator.itemType != 'multiple' && translators.length) {
-					// If we have more translators and not translating multiple items, continue
-					if (options.onTranslatorFallback) {
-						// Optionally notify about fallback to a different translator
-						options.onTranslatorFallback(translator, translators[0]);
+		const deferredErrors = [];
+		let succeeded = false;
+		try {
+			while (true) {
+				let translator = translators.shift();
+				translate.setTranslator(translator);
+				const canFallback = translator.itemType != 'multiple' && translators.length > 0;
+				const deferErrorLogging = Zotero.isManifestV3 && canFallback;
+				try {
+					let items = await translate.translate({deferErrorLogging});
+					succeeded = items.length > 0;
+					return {
+						items,
+						proxy: translate._proxy
+					};
+				} catch (e) {
+					if (deferErrorLogging && e) deferredErrors.push(e);
+					if (canFallback) {
+						// If we have more translators and not translating multiple items, continue
+						if (options.onTranslatorFallback) {
+							// Optionally notify about fallback to a different translator
+							options.onTranslatorFallback(translator, translators[0]);
+						}
+					}
+					else {
+						// Otherwise throw
+						throw e;
 					}
 				}
-				else {
-					// Otherwise throw
-					throw e;
-				}
 			}
+		} finally {
+			// Keep recovered failures in the debug log, but preserve the causes
+			// when extraction fails or a fallback returns no items.
+			if (!succeeded) for (const error of deferredErrors) Zotero.logError(error);
 		}
 	}
 }
