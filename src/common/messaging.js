@@ -104,7 +104,9 @@ Zotero.Messaging = new function() {
 			tab = (await browser.tabs.query({active: true, lastFocusedWindow: true}))[0]
 		}
 		if (typeof tab === 'number') {
-			tab = await browser.tabs.get(tab);
+			// Delivery only needs the ID. A tab may close before a late translator
+			// callback arrives; sendMessage below already handles a missing receiver.
+			tab = {id: tab};
 		}
 		let options = {};
 		if (typeof frameId == 'number') options = {frameId};
@@ -129,7 +131,7 @@ Zotero.Messaging = new function() {
 			tab = (await browser.tabs.query({active: true, lastFocusedWindow: true}))[0]
 		}
 		if (typeof tab === 'number') {
-			tab = await browser.tabs.get(tab);
+			tab = {id: tab};
 		}
 
 		if (!Zotero.isSafari) {

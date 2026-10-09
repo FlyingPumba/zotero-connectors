@@ -207,14 +207,15 @@ Zotero.OffscreenTranslate = {
 	onTranslateCleanup(tabIds) {
 		let deadTranslates = new Set(Object.keys(this.translateInstances))
 		for (let tabId of tabIds) {
-			deadTranslates.delete(tabId);
+			// Object keys are strings, while browser.tabs returns numeric IDs.
+			deadTranslates.delete(String(tabId));
 		}
 		if (!deadTranslates.size) return [];
 		for (let tabId of deadTranslates) {
 			delete this.translateInstances[tabId];
 		}
 		Zotero.debug(`OffscreenTranslate: Cleaning up translates not removed by onTabClosed ${JSON.stringify(Array.from(deadTranslates.keys()))}`, 1);
-		return Object.keys(deadTranslates);
+		return Array.from(deadTranslates);
 	}
 };
 
