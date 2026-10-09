@@ -91,11 +91,12 @@ Zotero.OffscreenManager = {
 	async cleanup() {
 		const offscreenPage = await this.getOffscreenPage();
 		if (!offscreenPage) return false;
-		let tabs = await browser.tabs.query({status: "complete", windowType: "normal"});
+		// Loading tabs and tabs in popup windows also own live translators.
+		let tabs = await browser.tabs.query({});
 		let cleanedUpTabIds = await this.sendMessage('translateCleanup', tabs.map(tab => tab.id));
 		if (cleanedUpTabIds.length > 0) {
 			Zotero.logError(new Error(`OffscreenManager: manually cleaned up translates that were kept `
-				+ `alive after onTabRemoved ${JSON.stringif(cleanedUpTabIds)}`));
+				+ `alive after onTabRemoved ${JSON.stringify(cleanedUpTabIds)}`));
 		}
 	},
 	
