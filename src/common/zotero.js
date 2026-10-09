@@ -277,6 +277,9 @@ var Zotero = global.Zotero = new function() {
 	
 	this.logError = function(err) {
 		Zotero.debug(err, 1);
+		// A failed translation may still be recovered by another translator.
+		// The caller will log it as an error if none of the fallbacks succeeds.
+		if (Zotero.OffscreenTranslate?.deferredErrors.has(err)) return;
 		if(!global.console) return;
 		
 		// Firefox uses this
