@@ -31,16 +31,27 @@ Zotero.SingleFile = {
 	_throttledRequest: Zotero.Utilities.Connector.throttleAsync(Zotero.COHTTP.request, 10),
 
 	singleFileFetch: async function(url, options = {}) {
+		const target = new URL(url, document.baseURI);
+		const crossOriginHTTP = ['http:', 'https:'].includes(target.protocol)
+			&& target.origin !== document.location.origin;
+		// A page can display a remote font/image while its connect-src policy
+		// blocks fetch() for the same URL. Use the existing extension transport
+		// first for those requests, without changing the page's security policy.
+		const pageFetch = () => this.hostFetch(target.href, {...options, referrerPolicy: 'strict-origin-when-cross-origin'});
+		const backgroundFetch = () => this.backgroundFetch(target.href, options);
 		try {
-			options.referrerPolicy = 'strict-origin-when-cross-origin';
-			return await this.hostFetch(url, options);
-		} catch (e) { }
-		// If hostFetch fails, we can still fetch via the bg page
-		// where we also support referrer replacing, but we have to
-		// remove the referrerPolicy, or the browser will refuse
-		// to send the invalid referrer.
-		options.responseType = 'arraybuffer';
-		options.referrer = document.location.href;
+			return await (crossOriginHTTP ? backgroundFetch() : pageFetch());
+		} catch (e) {
+			// Retain page-context access when extension fetching is unavailable,
+			// and the existing background fallback for same-origin resources.
+			return crossOriginHTTP ? pageFetch() : backgroundFetch();
+		}
+	},
+
+	backgroundFetch: async function(url, options) {
+		options = {...options, responseType: 'arraybuffer', referrer: document.location.href};
+		// Background requests support referrer replacement, which cannot be
+		// combined with the page-context referrer policy.
 		delete options.referrerPolicy;
 		// Singlefile likes to fire off 50 requests at once which doesn't seem healthy in general
 		// but it's causing catastrophic failures on Safari when saving substack, at least during dev,
