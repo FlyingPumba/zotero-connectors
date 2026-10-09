@@ -1,13 +1,25 @@
 import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
-import {mkdir} from 'node:fs/promises';
+import {mkdir, readFile} from 'node:fs/promises';
 import puppeteer from 'puppeteer';
 
+const font = await readFile(new URL('../node_modules/katex/dist/fonts/KaTeX_Main-Regular.woff2', import.meta.url));
+const assetServer = createServer((req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Content-Type', 'font/woff2'); res.end(font);
+});
+await new Promise(resolve => assetServer.listen(0, '127.0.0.1', resolve));
+const fontURL = `http://127.0.0.1:${assetServer.address().port}/font.woff2`;
 const server = createServer((req, res) => {
-  if (req.url === '/style.css') { res.setHeader('Content-Type', 'text/css'); res.end('h1 { color: rgb(23, 93, 77); }'); }
+  if (req.url === '/style.css') {
+    res.setHeader('Content-Type', 'text/css');
+    res.end(`@font-face {font-family: TestFont; src: url("${fontURL}") format("woff2");} h1 {font-family: TestFont; color: rgb(23, 93, 77);}`);
+  }
   else if (req.url === '/figure.svg') { res.setHeader('Content-Type', 'image/svg+xml'); res.end('<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><circle cx="10" cy="10" r="9" fill="green"/></svg>'); }
   else {
     res.setHeader('Content-Type', 'text/html');
+    // Like ICML: the font may display, but page-context fetches to its origin are blocked.
+    res.setHeader('Content-Security-Policy', "connect-src 'self'");
     res.end('<!doctype html><title>Reviewer tutorial</title><link rel="stylesheet" href="/style.css">'
       + (req.url.startsWith('/pdf') ? '<meta name="citation_pdf_url" content="/paper.pdf">' : '')
       + '<h1>Reviewer tutorial</h1><p>Give constructive feedback to the authors.</p><img src="/figure.svg" alt="Test figure">');
@@ -40,6 +52,10 @@ try {
   let captured;
   for (const [path, mode] of [['/entry', 'entry'], ['/categorize', 'categorize'], ['/content', 'pdf'], ['/pdf', 'pdf']]) {
     await page.goto(url + path);
+    await page.evaluate(() => {
+      window.snapshotViolations = [];
+      document.addEventListener('securitypolicyviolation', event => window.snapshotViolations.push(event.effectiveDirective + ': ' + event.blockedURI));
+    });
     await worker.evaluate(async sourceURL => {
       Zotero.Research.contentTest = {};
       const tab = (await browser.tabs.query({url: sourceURL}))[0];
@@ -72,10 +88,12 @@ try {
       assert.ok(snapshot.text.includes('Give constructive feedback'));
       assert.match(snapshot.image, /^data:image\//, 'Snapshot embeds the image');
       assert.match(snapshot.style, /color:/, 'Snapshot embeds the stylesheet');
+      assert.ok(snapshot.style.includes(font.toString('base64')), 'Snapshot embeds the complete cross-origin font');
+      assert.deepEqual(await page.evaluate(() => window.snapshotViolations), [], 'Snapshot capture must not trigger page CSP errors');
       assert.equal(snapshot.panel, false, 'The Research panel must not appear in the snapshot');
     } else assert.equal(saved.source.snapshotContent, undefined, path + ': preserve existing PDF and metadata-only behavior');
   }
-  console.log('PASS: content button captures page text, styles, and images; excludes the panel; prefers identified PDFs; other Add modes keep no snapshot');
+  console.log('PASS: content button captures text, styles, images, and cross-origin fonts without CSP errors; excludes the panel; preserves PDF and metadata-only behavior');
   const linked = await worker.evaluate(url => Zotero.Research.extractPaper(url, true, true), url + '/linked');
   assert.ok(linked.source.snapshotContent.includes('Give constructive feedback'), 'Linked/Twitter imports capture the selected page');
   assert.equal(linked.source.url, url + '/linked');
@@ -87,6 +105,24 @@ try {
   }, tabID);
   assert.ok(retry.source.snapshotContent.includes('Give constructive feedback'), 'Retries capture a fresh snapshot without re-translating metadata');
   console.log('PASS: hidden linked-page imports and retry extraction capture the intended source');
+  if (process.argv.includes('--live')) {
+    const liveURL = 'https://icml.cc/Conferences/2022/ReviewerTutorial';
+    await page.goto(liveURL, {waitUntil: 'load'});
+    await page.evaluate(() => {
+      window.snapshotViolations = [];
+      document.addEventListener('securitypolicyviolation', event => window.snapshotViolations.push(event.effectiveDirective + ': ' + event.blockedURI));
+    });
+    const live = await worker.evaluate(async url => {
+      const tab = (await browser.tabs.query({url}))[0];
+      await Zotero.Connector_Browser.injectTranslationScripts(tab);
+      return browser.tabs.sendMessage(tab.id, {research: 'extract', metadata: true, detect: true, snapshot: true}, {frameId: 0});
+    }, liveURL);
+    assert.equal(live.error, undefined);
+    assert.ok(live.source.snapshotContent.includes('This tutorial describes the review process'));
+    assert.match(live.source.snapshotContent, /data:font\/woff2;base64,/);
+    assert.deepEqual(await page.evaluate(() => window.snapshotViolations), []);
+    console.log('PASS: real ICML tutorial captures content and fonts without page CSP violations');
+  }
   if (process.argv.includes('--native')) {
     const response = await fetch('http://127.0.0.1:23129/connector/research-test/content', {
       method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(captured)
@@ -102,4 +138,5 @@ try {
   throw error;
 } finally {
   await browser.close(); await new Promise(resolve => server.close(resolve));
+  await new Promise(resolve => assetServer.close(resolve));
 }
