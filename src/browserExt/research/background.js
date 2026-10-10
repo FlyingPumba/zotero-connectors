@@ -3,11 +3,19 @@ Zotero.Research = {
 	ordinaryChecks: new Map(),
 	async confirmDuplicates(tab, frameId, items, source) {
 		const {matches} = await this.call('duplicates', {items, source: {url: source?.url, pdfURLs: source?.pdfURLs}});
-		if (!matches.length) return true;
+		if (!matches.length) return {confirmed: true};
 		Zotero.Connector_Browser.setKeepServiceWorkerAlive(true);
 		try {
 			const result = await browser.tabs.sendMessage(tab.id, {research: 'duplicates', matches}, {frameId});
-			return result?.confirmed === true;
+			if (result?.continueItem) {
+				const match = matches.find(item => item.canContinue && item.key === result.continueItem.key
+					&& item.libraryID === result.continueItem.libraryID);
+				if (!match) throw new Error('Choose one of the matching Zotero entries.');
+				const job = await this.call('continueDiscussion', {key: match.key, libraryID: match.libraryID});
+				await browser.storage.session.set({['researchTab:' + tab.id]: {id: job.id, displayedURL: tab.url}});
+				return {continued: true, job};
+			}
+			return {confirmed: result?.confirmed === true};
 		} finally { Zotero.Connector_Browser.setKeepServiceWorkerAlive(false); }
 	},
 	async show(tab) {
@@ -117,7 +125,9 @@ Zotero.Research = {
 		if (!chosen) return {paperChoices: pending.candidates};
 		await this.progress(tab, 'Reading the linked paper’s metadata…');
 		const extracted = await this.extractPaper(chosen.url, true, data.mode === 'pdf');
-		if (!await this.confirmDuplicates(tab, frameId, [extracted.item], extracted.source)) return {cancelled: true};
+		const decision = await this.confirmDuplicates(tab, frameId, [extracted.item], extracted.source);
+		if (decision.continued) { await browser.storage.session.remove(key); return decision; }
+		if (!decision.confirmed) return {cancelled: true};
 		const job = await this.call('start', {...data, ...extracted, twitterThread: pending.thread});
 		await browser.storage.session.set({['researchTab:' + tab.id]: {id: job.id, displayedURL: tab.url}});
 		await browser.storage.session.remove(key);
@@ -142,10 +152,13 @@ Zotero.Research = {
 
 browser.runtime.onMessage.addListener((message, sender) => {
 	if (message?.research === 'checkDuplicates' && sender.tab) {
-		const frameId = Zotero.Research.ordinaryChecks.get(sender.tab.id);
-		if (frameId === undefined) return Promise.resolve({error: 'The save panel is no longer open. Try again.'});
-		return Zotero.Research.confirmDuplicates(sender.tab, frameId, message.items, message.source)
-			.then(confirmed => ({confirmed})).catch(error => ({error: error.message, zoteroUnavailable: error.zoteroUnavailable}));
+		const check = Zotero.Research.ordinaryChecks.get(sender.tab.id);
+		if (!check) return Promise.resolve({error: 'The save panel is no longer open. Try again.'});
+		return Zotero.Research.confirmDuplicates(sender.tab, check.frameId, message.items, message.source)
+			.then(decision => {
+				if (decision.continued) check.continuation = decision;
+				return {confirmed: decision.confirmed === true};
+			}).catch(error => ({error: error.message, zoteroUnavailable: error.zoteroUnavailable}));
 	}
 	if (!message || message.research !== 'panel') return;
 	// The web page cannot send privileged commands through the panel's message bridge.
@@ -162,7 +175,8 @@ browser.runtime.onMessage.addListener((message, sender) => {
 			// Check the local plugin before the usual workflow can offer an online save.
 			await Zotero.Research.call('duplicates', {items: []});
 			const info = Zotero.Connector_Browser.getTabInfo(tab.id);
-			Zotero.Research.ordinaryChecks.set(tab.id, sender.frameId);
+			const check = {frameId: sender.frameId};
+			Zotero.Research.ordinaryChecks.set(tab.id, check);
 			Zotero.Connector_Browser.setKeepServiceWorkerAlive(true);
 			try {
 				let result;
@@ -170,7 +184,7 @@ browser.runtime.onMessage.addListener((message, sender) => {
 				else result = await Zotero.Connector_Browser.saveAsWebpage(tab, info.isPDF ? info.frameId : 0, {
 					researchDuplicateCheck: true, snapshot: info.isPDF || (Zotero.Connector.isOnline
 						? Zotero.Connector.prefs.automaticSnapshots : Zotero.Prefs.get('automaticSnapshots'))});
-				return result?.cancelled || result?.error ? result : {ok: true};
+				return check.continuation || (result?.cancelled || result?.error ? result : {ok: true});
 			} finally {
 				Zotero.Research.ordinaryChecks.delete(tab.id);
 				Zotero.Connector_Browser.setKeepServiceWorkerAlive(false);
@@ -204,7 +218,11 @@ browser.runtime.onMessage.addListener((message, sender) => {
 			const extracted = await browser.tabs.sendMessage(tab.id,
 				{research: 'extract', metadata: message.action === 'start', snapshot}, {frameId: 0});
 			if (!extracted || extracted.error) throw new Error(extracted?.error || 'Could not read this page. Reload it and try again.');
-			if (message.action === 'start' && !await Zotero.Research.confirmDuplicates(tab, sender.frameId, [extracted.item], extracted.source)) return {cancelled: true};
+			if (message.action === 'start') {
+				const decision = await Zotero.Research.confirmDuplicates(tab, sender.frameId, [extracted.item], extracted.source);
+				if (decision.continued) return decision;
+				if (!decision.confirmed) return {cancelled: true};
+			}
 			return Zotero.Research.call(message.action, {...data, ...extracted});
 		}
 		throw new Error('Unknown paper action.');
