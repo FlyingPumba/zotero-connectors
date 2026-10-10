@@ -12,19 +12,35 @@ function confirmDuplicates(matches) {
 	const hidden = ['actions', 'paperChoice', 'progress'].map(id => [id, $(id).hidden]);
 	for (const [id] of hidden) $(id).hidden = true;
 	$('duplicateMatches').replaceChildren();
+	const continuable = matches.filter(match => match.canContinue);
+	let selected = continuable.length === 1 ? continuable[0] : null;
+	$('duplicateContinue').hidden = !continuable.length;
+	$('duplicateContinue').disabled = !selected;
+	$('duplicateSelectionHint').hidden = continuable.length < 2;
+	$('duplicateContinue').onclick = () => {
+		if (!selected) return;
+		$('status').textContent = 'Opening saved discussion…';
+		duplicateDecision?.(false, {key: selected.key, libraryID: selected.libraryID});
+	};
 	for (const match of matches) {
 		const title = document.createElement('p'), library = document.createElement('small');
 		title.textContent = match.title; library.textContent = match.library;
-		title.append(library); $('duplicateMatches').append(title);
+		title.append(library);
+		if (continuable.length > 1 && match.canContinue) {
+			const label = document.createElement('label'), radio = document.createElement('input');
+			radio.type = 'radio'; radio.name = 'duplicateItem';
+			radio.onchange = () => { selected = match; $('duplicateContinue').disabled = false; };
+			label.append(radio, title); $('duplicateMatches').append(label);
+		} else $('duplicateMatches').append(title);
 	}
 	$('duplicatePrompt').hidden = false;
 	$('duplicateCancel').focus();
 	return new Promise(resolve => {
-		duplicateDecision = confirmed => {
+		duplicateDecision = (confirmed, continueItem) => {
 			duplicateDecision = null;
 			$('duplicatePrompt').hidden = true;
 			for (const [id, value] of hidden) $(id).hidden = value;
-			resolve({confirmed});
+			resolve({confirmed, continueItem});
 		};
 	});
 }
@@ -351,6 +367,7 @@ async function act(action, data) {
 	try {
 		$('status').textContent = action === 'start' ? 'Reading metadata and adding entry…' : 'Working…';
 		const result = await call(action, data);
+		if (result.continued) { render(result.job); await refresh(); return; }
 		if (result.cancelled) { $('ordinary').hidden = false; return; }
 		if (action === 'ordinary') { await call('close'); return; }
 		if (result.paperChoices) {

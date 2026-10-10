@@ -22,6 +22,9 @@ p { margin: 12px 0; } button, textarea, input { font: inherit; } button { cursor
 #duplicateMatches { padding: 10px 12px; background: #edf3ef; border-radius: 8px; overflow-wrap: anywhere; }
 #duplicateMatches p { margin: 6px 0; font-size: 13px; }
 #duplicateMatches small { display: block; color: #67716e; font-size: 11px; }
+#duplicateMatches label { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
+#duplicateMatches input { margin-top: 10px; accent-color: #235b4c; }
+#duplicateContinue { display: block; width: 100%; margin-top: 12px; }
 #paperChoices button { display: block; width: 100%; margin: 10px 0; text-align: left; overflow-wrap: anywhere; }
 #paperChoices small { display: block; font-size: 11px; margin-top: 5px; }
 .hint { color: #67716e; font-size: 12px; } #status { color: #396c5e; font-size: 13px; } #error { padding: 12px; color: #993a2b; background: #fff0e9; border-radius: 8px; overflow-wrap: anywhere; }

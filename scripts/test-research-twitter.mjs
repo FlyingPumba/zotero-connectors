@@ -102,7 +102,10 @@ try {
       return originalFetch(url, options);
     };
     Zotero.Research.call = async (method, data) => {
-      if (method === 'duplicates') return {matches: []};
+      if (method === 'duplicates') return {matches: Zotero.Research.testMatches || []};
+      if (method === 'continueDiscussion') return Zotero.Research.testJob = {id: 'saved-twitter-paper', itemKey: data.key,
+        libraryID: data.libraryID, title: 'Existing paper', status: 'ready', summary: 'Saved in Zotero',
+        existingCollections: [], availableCollections: [], messages: []};
       if (method === 'settings') return {model: 'gpt-6-astra', effort: 'xhigh', models: [
         {model: 'gpt-6-astra', supportedReasoningEfforts: [{reasoningEffort: 'high'}, {reasoningEffort: 'xhigh'}]}
       ]};
@@ -311,6 +314,25 @@ try {
     await worker.evaluate(() => { Zotero.Research.extractPaper = Zotero.Research.testExtractPaper; delete Zotero.Research.testExtractPaper; });
   }
   console.log('PASS: one arXiv paper URL skips the chooser in both Add modes, including expanded short links');
+
+  html = '<!doctype html><title>Twitter</title>' + post('101', `<a href="${paperURL}">Paper</a>`);
+  await worker.evaluate(() => { Zotero.Research.testMatches = [{key: 'EXISTING', libraryID: 1, title: 'Existing paper', library: 'My Library', canContinue: true}]; });
+  const continuation = await openPanel();
+  const startsBeforeContinue = await worker.evaluate(() => Zotero.Research.testStarts.length);
+  await continuation.panel.locator('#entry').click();
+  await continuation.panel.waitForSelector('#paperChoice:not([hidden])');
+  await continuation.panel.locator('#paperChoices button').click();
+  await continuation.panel.waitForSelector('#duplicatePrompt:not([hidden])');
+  await continuation.panel.locator('#duplicateContinue').click();
+  await continuation.panel.waitForFunction(() => job?.id === 'saved-twitter-paper' && !busy);
+  assert.equal(await worker.evaluate(() => Zotero.Research.testStarts.length), startsBeforeContinue);
+  assert.equal(await continuation.panel.$eval('#summary', n => n.textContent), 'Saved in Zotero');
+  const bindings = await worker.evaluate(() => browser.storage.session.get(null));
+  assert.equal(bindings['researchTwitter:' + continuation.tab.id], undefined, 'Discard the pending import after continuing an existing entry');
+  assert.equal(bindings['researchTab:' + continuation.tab.id].id, 'saved-twitter-paper');
+  assert.equal(page.url(), 'https://x.com/researcher/status/101');
+  await worker.evaluate(() => { delete Zotero.Research.testMatches; });
+  console.log('PASS: Twitter duplicate continuation opens the saved paper without a new import or leftover pending choice');
 
   const links = await worker.evaluate(() => Zotero.Research.paperLinks({posts: [{text: '', links: [
     {url: 'https://x.com/colleague'}, {url: 'https://twitter.com/colleague/status/123'},

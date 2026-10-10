@@ -14,12 +14,20 @@ try {
   await worker.evaluate(async () => {
     await Zotero.initDeferred.promise;
     await Zotero.Prefs.set('firstUse', false);
-    Zotero.Research.duplicateTest = {saves: [], checks: [], matches: [{key: 'EXISTING', title: 'The saved paper', library: 'My Library'}]};
+    Zotero.Research.duplicateTest = {saves: [], checks: [], continues: [], matches: [{key: 'EXISTING', libraryID: 1,
+      title: 'The saved paper', library: 'My Library', canContinue: true}]};
     Zotero.Research.call = async (method, data) => {
       const state = Zotero.Research.duplicateTest;
       if (method === 'status') return {job: state.job || null};
       if (method === 'settings') return {model: 'test', effort: 'high', models: []};
       if (method === 'duplicates') { state.checks.push(data); return {matches: state.matches}; }
+      if (method === 'continueDiscussion') {
+        state.continues.push(data);
+        if (state.continueError) throw new Error(state.continueError);
+        return state.job = {id: 'saved-discussion', itemKey: data.key, libraryID: data.libraryID, status: 'ready',
+          title: 'The saved paper', summary: 'Summary generated in Zotero.', discussionHTML: '<p>Previously saved discussion.</p>',
+          messages: [], existingCollections: [], availableCollections: []};
+      }
       if (method === 'start') {
         state.saves.push(data);
         return state.job = {id: data.requestID, mode: data.mode, status: 'ready', title: data.item.title,
@@ -34,6 +42,7 @@ try {
     const tabID = await worker.evaluate(async url => (await browser.tabs.query({url}))[0].id, url);
     await worker.evaluate(async ({tabID, kind}) => {
       Zotero.Research.duplicateTest.saves = []; Zotero.Research.duplicateTest.checks = []; Zotero.Research.duplicateTest.job = null;
+      Zotero.Research.duplicateTest.continues = [];
       await Zotero.Research.show(await browser.tabs.get(tabID));
       // Keep real PageSaving and its duplicate checks. Stub only translation and
       // final storage, so the test can assert zero writes before confirmation.
@@ -111,6 +120,56 @@ try {
     await page.close();
   }
   console.log('PASS: ordinary translation and multi-item selection check the actual items before ItemSaver runs');
+  for (const [kind, mode] of [['plain', 'entry'], ['plain', 'pdf'], ['plain', 'categorize'], ['plain', 'ordinary'],
+    ['translated', 'ordinary'], ['multiple', 'ordinary']]) {
+    const {page, panel, writes, tabID} = await open(kind);
+    await panel.locator('#' + mode).click();
+    await panel.waitForSelector('#duplicatePrompt:not([hidden])');
+    assert.equal(await panel.$eval('#duplicateContinue', node => node.textContent), 'Continue research discussion');
+    assert.ok(await panel.evaluate(() => $('duplicateContinue').getBoundingClientRect().top > $('duplicateYes').getBoundingClientRect().bottom));
+    await panel.locator('#duplicateContinue').click();
+    await panel.waitForFunction(() => job?.id === 'saved-discussion' && !busy);
+    assert.equal(await panel.$eval('#summary', node => node.textContent), 'Summary generated in Zotero.');
+    assert.match(await panel.$eval('#messages', node => node.textContent), /Previously saved discussion/);
+    assert.equal((await writes()).length, 0, kind + '/' + mode + ': Continue never saves another item');
+    const state = await worker.evaluate(() => Zotero.Research.duplicateTest);
+    assert.equal(state.saves.length, 0); assert.deepEqual(state.continues, [{key: 'EXISTING', libraryID: 1}]);
+    const binding = await worker.evaluate(async tabID => (await browser.storage.session.get('researchTab:' + tabID))['researchTab:' + tabID], tabID);
+    assert.equal(binding.id, 'saved-discussion'); assert.equal(binding.displayedURL, page.url());
+    await page.close();
+  }
+  console.log('PASS: Continue opens saved summary/discussion from every save path, binds the tab, and creates nothing');
+  await worker.evaluate(() => {
+    Zotero.Research.duplicateTest.matches.push({key: 'EXISTING', libraryID: 2, title: 'Other saved copy', library: 'Group Library', canContinue: true});
+  });
+  {
+    const {page, panel} = await open('plain');
+    await panel.locator('#entry').click();
+    await panel.waitForSelector('#duplicatePrompt:not([hidden])');
+    assert.equal(await panel.$eval('#duplicateContinue', node => node.disabled), true);
+    await panel.locator('#duplicateMatches label:nth-child(2)').click();
+    await panel.locator('#duplicateContinue').click();
+    await panel.waitForFunction(() => job?.id === 'saved-discussion' && !busy);
+    assert.deepEqual(await worker.evaluate(() => Zotero.Research.duplicateTest.continues), [{key: 'EXISTING', libraryID: 2}]);
+    await page.close();
+  }
+  console.log('PASS: multiple matches require choosing an entry and respect its library identity');
+  await worker.evaluate(() => {
+    Zotero.Research.duplicateTest.matches.pop();
+    Zotero.Research.duplicateTest.continueError = 'This Zotero item was deleted.';
+  });
+  for (const mode of ['entry', 'ordinary']) {
+    const {page, panel, writes} = await open('plain');
+    await panel.locator('#' + mode).click(); await panel.waitForSelector('#duplicatePrompt:not([hidden])');
+    await panel.locator('#duplicateContinue').click();
+    await panel.waitForFunction(() => !busy && !$('error').hidden);
+    assert.match(await panel.$eval('#error', node => node.textContent), /item was deleted/);
+    assert.equal((await writes()).length, 0);
+    assert.equal((await worker.evaluate(() => Zotero.Research.duplicateTest.saves)).length, 0);
+    await page.close();
+  }
+  await worker.evaluate(() => { delete Zotero.Research.duplicateTest.continueError; });
+  console.log('PASS: continuation failure reports the error without adding a duplicate');
   await worker.evaluate(() => { Zotero.Research.duplicateTest.matches = []; });
   const {page, panel} = await open('plain');
   await panel.locator('#entry').click();
