@@ -68,6 +68,14 @@ try {
       }
       if (method === 'chat') {
         if (data.source) throw new Error('Resumed chat must not extract the page again');
+        if (Zotero.Research.holdNextChat) {
+          Zotero.Research.holdNextChat = false;
+          await new Promise(resolve => { Zotero.Research.releaseChat = resolve; });
+        }
+        if (Zotero.Research.rejectNextChat) {
+          Zotero.Research.rejectNextChat = false;
+          throw new Error('Could not send question');
+        }
         Zotero.Research.chatVerified = true;
         currentJob.status = 'chatting'; currentJob.partial = '';
         currentJob.stage = 'Answering in the paper’s Codex session';
@@ -423,12 +431,24 @@ $$\begin{pmatrix}a & b \\ c & d\end{pmatrix}$$
   await panel.type('#question', 'Explain the details.');
   assert.equal(await panel.$eval('#question', n => n.value), 'Continue the discussion.\nExplain the details.', 'Enter inserts a newline');
   assert.equal(await panel.evaluate(() => job.status), 'ready', 'Enter does not send the message');
+  await worker.evaluate(() => { Zotero.Research.holdNextChat = true; });
   await page.keyboard.down('Meta');
   await page.keyboard.press('Enter');
   await page.keyboard.up('Meta');
+  await worker.waitForFunction(() => !!Zotero.Research.releaseChat);
+  assert.equal(await panel.$eval('#question', n => n.disabled), false, 'Keep the composer editable while sending');
+  assert.equal(await panel.$eval('#question', n => n.value), '', 'Clear the sent question immediately');
+  assert.equal(await panel.$eval('#send', n => n.disabled), true);
+  const nextQuestion = 'And the main limitation?';
+  await panel.type('#question', nextQuestion);
+  await worker.evaluate(() => { Zotero.Research.releaseChat(); delete Zotero.Research.releaseChat; });
   await panel.waitForFunction(() => !busy && job.status === 'chatting');
   assert.equal(await panel.evaluate(() => job.messages.length), messagesBeforeShortcut + 1, 'Cmd+Enter sends exactly one message');
   assert.equal(await panel.evaluate(() => job.messages.at(-1).text), 'Continue the discussion.\nExplain the details.');
+  assert.equal(await panel.$eval('#question', n => n.value), nextQuestion, 'Acknowledgement preserves a draft written while sending');
+  assert.equal(await panel.$eval('#question', n => n.disabled), false, 'Keep the composer editable while answering');
+  await page.keyboard.down('Meta'); await page.keyboard.press('Enter'); await page.keyboard.up('Meta');
+  assert.equal(await panel.evaluate(() => job.messages.length), messagesBeforeShortcut + 1, 'Cmd+Enter cannot send while a reply is running');
   const chatProgress = await panel.evaluate(() => {
     const progress = $('progress'), message = $('messages').lastElementChild;
     return {visible: progress.getClientRects().length > 0, parent: progress.parentElement.id,
@@ -464,6 +484,8 @@ $$\begin{pmatrix}a & b \\ c & d\end{pmatrix}$$
   assert.equal(await panel.$eval('#progress', n => n.hidden), true, 'The first streamed text replaces chat progress');
   assert.equal(await panel.$eval('#partialContent strong', n => n.textContent), 'Same session.');
   assert.equal(await panel.$eval('#partial .message-role', n => n.textContent), 'Assistant');
+  assert.equal(await panel.$eval('#question', n => n.value), nextQuestion, 'Streaming and docking preserve the draft');
+  await panel.type('#question', ' Please elaborate.');
   const messageAppearance = n => {
     const style = getComputedStyle(n);
     return {background: style.backgroundColor, padding: style.padding, borderRadius: style.borderRadius};
@@ -485,19 +507,29 @@ $$\begin{pmatrix}a & b \\ c & d\end{pmatrix}$$
   assert.deepEqual(await panel.$eval('#messages .assistant:last-child', messageAppearance), streamingAppearance, 'Streaming and finished answers use the same box styling');
   assert.equal(await panel.$eval('.assistant > div', n => getComputedStyle(n).fontSize), '15px');
   assert.equal(await worker.evaluate(() => Zotero.Research.chatVerified), true);
+  assert.equal(await panel.$eval('#question', n => n.value), nextQuestion + ' Please elaborate.', 'Completion preserves edits made during streaming');
   await page.screenshot({path: output + '/zotero-chat-complete.png'});
 
+  // A rejected send restores the submitted question if no newer draft was entered.
+  await worker.evaluate(() => { Zotero.Research.rejectNextChat = true; });
+  await panel.click('#send');
+  await panel.waitForFunction(() => !busy && !$('error').hidden);
+  assert.equal(await panel.$eval('#question', n => n.value), nextQuestion + ' Please elaborate.');
+  assert.equal(await panel.evaluate(() => job.messages.length), messagesBeforeShortcut + 2);
+
   // A follow-up starts a new waiting indicator; a failed answer clears it.
-  await panel.type('#question', 'And the main limitation?');
   await panel.focus('#send');
   await page.keyboard.press('Enter');
   await panel.waitForFunction(() => !busy && job.status === 'chatting');
   assert.equal(await panel.$eval('#progress', n => !n.hidden && n.previousElementSibling.id === 'messages'), true);
   assert.ok(await panel.$eval('#messages', n => n.lastElementChild.textContent.includes('And the main limitation?')));
+  await panel.type('#question', 'A draft during the second reply.');
   const failedJob = await panel.evaluate(() => ({...job, status: 'ready', stage: 'Ready to discuss', error: 'Answer failed'}));
   await worker.evaluate(job => Zotero.Research.setTestJob(job), failedJob);
   await panel.waitForFunction(() => job.status === 'ready' && !document.getElementById('error').hidden);
   assert.equal(await panel.$eval('#progress', n => n.hidden), true);
+  assert.equal(await panel.$eval('#question', n => n.value), 'A draft during the second reply.', 'Failed answers also preserve the next draft');
+  await panel.$eval('#question', n => { n.value = ''; });
   const noSummary = {...finishedJob, summary: '', error: null};
   await worker.evaluate(job => Zotero.Research.setTestJob(job), noSummary);
   await panel.evaluate(() => refresh());
