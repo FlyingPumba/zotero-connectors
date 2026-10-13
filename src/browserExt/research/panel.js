@@ -344,7 +344,6 @@ function render(next) {
 	markdown($('partialContent'), job.partial);
 	$('partial').hidden = !job.partial;
 	$('send').disabled = busy || job.status !== 'ready';
-	$('question').disabled = job.status === 'chatting';
 }
 async function refresh(reconnect = false) {
 	try {
@@ -359,6 +358,8 @@ async function refresh(reconnect = false) {
 }
 async function act(action, data) {
 	if (busy) return;
+	const submittedQuestion = action === 'chat' ? $('question').value : null;
+	if (action === 'chat') $('question').value = '';
 	if (action === 'start') $('ordinary').hidden = true;
 	busy = true; activeAction = action; actionStartedAt = Date.now(); $('error').hidden = true;
 	updateProgress();
@@ -384,9 +385,11 @@ async function act(action, data) {
 		}
 		$('paperChoice').hidden = true;
 		render(result);
-		if (action === 'chat') $('question').value = '';
 		await refresh();
-	} catch (e) { error(e); }
+	} catch (e) {
+		if (action === 'chat' && !$('question').value) $('question').value = submittedQuestion;
+		error(e);
+	}
 	finally {
 		busy = false; activeAction = null; updateProgress();
 		for (const id of ['entry', 'pdf', 'categorize', 'ordinary', 'approve', 'skip', 'retry']) $(id).disabled = false;
