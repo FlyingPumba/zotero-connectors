@@ -333,6 +333,35 @@ try {
   assert.equal(await panel.$$eval('.assistant pre code', n => n.length), 1);
   assert.equal(await panel.$$eval('.assistant script, .assistant img, .assistant [onerror], .assistant [href^="javascript:"]', n => n.length), 0);
   assert.equal(await panel.$$eval('.user > div strong', n => n.length), 0);
+  await panel.evaluate(() => {
+    window.realClipboardWrite = navigator.clipboard.writeText.bind(navigator.clipboard);
+    navigator.clipboard.writeText = async text => {
+      if (window.clipboardFailure) throw new Error('Clipboard unavailable');
+      window.copiedMarkdown = text;
+    };
+  });
+  const copyResponse = async (selector, expected) => {
+    await panel.evaluate(() => { window.copiedMarkdown = null; });
+    await panel.focus(selector); await page.keyboard.press('Enter');
+    await panel.waitForFunction(expected => window.copiedMarkdown === expected, {}, expected);
+    assert.equal(await panel.$eval(selector, n => n.previousElementSibling.textContent), 'Copied');
+  };
+  assert.equal(await panel.$$eval('#messages .message-copy', nodes => nodes.length), 1, 'Only Assistant bubbles get a copy button');
+  await copyResponse('#messages .assistant .message-copy', markdownText);
+  const copyLayout = await panel.$eval('#messages .assistant', n => {
+    const role = n.querySelector('.message-role').getBoundingClientRect(), button = n.querySelector('.message-copy').getBoundingClientRect();
+    return {roleY: role.y + role.height / 2, buttonY: button.y + button.height / 2, rightInset: n.getBoundingClientRect().right - button.right};
+  });
+  assert.ok(Math.abs(copyLayout.roleY - copyLayout.buttonY) < 1, 'Copy is vertically aligned with Assistant');
+  assert.equal(copyLayout.rightInset, 12, 'Copy stays inside the top-right bubble padding');
+  await panel.evaluate(() => { window.clipboardFailure = true; });
+  await panel.click('#messages .assistant .message-copy');
+  await panel.waitForFunction(() => document.querySelector('#messages .message-copy-status').textContent.includes('Could not copy'));
+  await panel.evaluate(() => { window.clipboardFailure = false; });
+  await copyResponse('#messages .assistant .message-copy', markdownText);
+  await panel.evaluate(() => render({...job, messages: [...job.messages, {role: 'assistant', text: 'A **second** answer.'}]}));
+  await copyResponse('#messages .assistant:last-child .message-copy', 'A **second** answer.');
+  await copyResponse('#messages .assistant .message-copy', markdownText);
 
   const mathText = String.raw`### How do they measure faithfulness?
 
@@ -360,6 +389,7 @@ $$\begin{pmatrix}a & b \\ c & d\end{pmatrix}$$
   assert.equal(await panel.$$eval('.assistant .katex', nodes => nodes.length), 6);
   assert.equal(await panel.$$eval('.assistant .katex-display', nodes => nodes.length), 2);
   assert.equal(await panel.$$eval('.assistant .katex-error', nodes => nodes.length), 0);
+  await copyResponse('#messages .assistant .message-copy', mathText);
   assert.equal(await panel.$eval('.assistant .katex-display annotation', n => n.textContent.trim()), String.raw`\text{Faithfulness}=\operatorname{corr}(\hat p,\tilde p).`);
   assert.equal(await panel.$$eval('.assistant code .katex', nodes => nodes.length), 0, 'Code remains literal');
   assert.ok(await panel.$eval('.assistant', n => n.textContent.includes('Costs $5 and $10; escaped $25.')));
@@ -375,13 +405,22 @@ $$\begin{pmatrix}a & b \\ c & d\end{pmatrix}$$
     render({...job, discussionHTML: '<h2>Assistant</h2>' + markdownHTML(text, marked), discussionMessageCount: 1});
   }, mathText);
   assert.equal(await panel.$$eval('.assistant .katex', nodes => nodes.length), 6, 'Saved answers also render formulas');
+  await copyResponse('#messages .assistant .message-copy', mathText);
   await panel.evaluate(() => render({...job, discussionHTML: job.discussionHTML.replace('weights inferred from choices.', 'My edited interpretation.')}));
   assert.ok(await panel.$eval('.assistant', n => n.textContent.includes('My edited interpretation.')), 'Never replace an edited Zotero note with the original answer');
+  await panel.focus('#messages .assistant .message-copy'); await page.keyboard.press('Enter');
+  assert.match(await panel.evaluate(() => window.copiedMarkdown), /My edited interpretation\./);
+  assert.doesNotMatch(await panel.evaluate(() => window.copiedMarkdown), /weights inferred from choices\./);
+  await panel.evaluate(() => render({...job, discussionHTML: '<h2>Assistant</h2><p>A <strong>saved</strong> response.</p><pre><code class="language-js">let x = 1;\n</code></pre>', messages: [], discussionMessageCount: 0}));
+  await copyResponse('#messages .assistant .message-copy', 'A **saved** response.\n\n\n\n```js\nlet x = 1;\n```');
 
   await panel.evaluate(() => render({...job, discussionHTML: null, messages: [], partial: String.raw`Let \(\frac{`}));
   assert.equal(await panel.$eval('#partialContent', n => n.textContent.trimEnd()), String.raw`Let (\frac{`);
   await panel.evaluate(() => render({...job, partial: String.raw`Let \(\frac{x}{y}\)`}));
   assert.equal(await panel.$$eval('#partial .katex', nodes => nodes.length), 1, 'Math appears once a streamed formula is complete');
+  await copyResponse('#partial .message-copy', String.raw`Let \(\frac{x}{y}\)`);
+  await panel.evaluate(() => render({...job, partial: '**Updated** stream.'}));
+  await copyResponse('#partial .message-copy', '**Updated** stream.');
   await panel.evaluate(() => render({...job, partial: String.raw`\(\frac{x}\) and \(\unknowncommand{x}\) and \(\href{javascript:alert(1)}{click}\)`}));
   assert.equal(await panel.$$eval('#partial .katex-error', nodes => nodes.length), 1, 'Malformed TeX stays visible without breaking the answer');
   assert.ok(await panel.$eval('#partial', n => n.textContent.includes('\\unknowncommand')), 'Unsupported commands stay visible');
@@ -391,6 +430,8 @@ $$\begin{pmatrix}a & b \\ c & d\end{pmatrix}$$
   assert.ok(formulaLayout.scroll > formulaLayout.width, 'Long equations scroll horizontally');
   assert.ok(formulaLayout.body <= formulaLayout.panel, 'Long equations do not widen the panel');
   console.log('PASS: inline/display math, saved discussions, streaming, local fonts, literal code/currency, and note-edit preservation');
+  await panel.evaluate(() => { navigator.clipboard.writeText = window.realClipboardWrite; });
+  console.log('PASS: per-response Markdown copy, math/code source, saved and edited notes, streaming, keyboard access, alignment, and clipboard failure/retry');
   await panel.evaluate(text => render({...job, discussionHTML: null, partial: '', messages: [{role: 'user', text: '**Keep this literal**'}, {role: 'assistant', text}]}), markdownText);
   await panel.focus('#session > summary');
   await page.keyboard.press('Enter');
