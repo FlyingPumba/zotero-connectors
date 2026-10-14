@@ -146,6 +146,57 @@ function markdown(node, text) {
 	typesetMath(node);
 	for (const link of node.querySelectorAll('a')) { link.target = '_blank'; link.rel = 'noopener noreferrer'; }
 }
+function savedResponseMarkdown(node) {
+	// Notes edited in Zotero may no longer match the original response. Copy the
+	// displayed content in that case, preserving unsupported formatting as HTML.
+	const convert = node => {
+		if (node.nodeType === Node.TEXT_NODE) return node.textContent.replace(/([\\`*_\[\]<>])/g, '\\$1');
+		if (node.nodeType !== Node.ELEMENT_NODE) return '';
+		const text = () => [...node.childNodes].map(convert).join('');
+		const block = value => '\n\n' + value + '\n\n';
+		switch (node.tagName) {
+			case 'P': case 'DIV': return block(text());
+			case 'BR': return '  \n';
+			case 'STRONG': case 'B': return '**' + text() + '**';
+			case 'EM': case 'I': return '*' + text() + '*';
+			case 'DEL': case 'S': return '~~' + text() + '~~';
+			case 'H1': case 'H2': case 'H3': case 'H4': case 'H5': case 'H6': return block('#'.repeat(+node.tagName[1]) + ' ' + text());
+			case 'HR': return block('---');
+			case 'A': return node.hasAttribute('href') ? '[' + text() + '](<' + node.getAttribute('href').replace(/[<>\n]/g, encodeURIComponent) + '>)' : text();
+			case 'PRE': {
+				const value = node.textContent, fence = '`'.repeat(Math.max(3, ...[...value.matchAll(/`+/g)].map(m => m[0].length + 1)));
+				const language = node.firstElementChild?.className.match(/(?:^|\s)language-([\w+-]+)/)?.[1] || '';
+				return block(fence + language + '\n' + value.replace(/\n$/, '') + '\n' + fence);
+			}
+			case 'CODE': {
+				const value = node.textContent, fence = '`'.repeat(Math.max(1, ...[...value.matchAll(/`+/g)].map(m => m[0].length + 1)));
+				return fence + ' ' + value + ' ' + fence;
+			}
+			case 'BLOCKQUOTE': return block(text().trim().split('\n').map(line => '> ' + line).join('\n'));
+			case 'UL': case 'OL': return block([...node.children].map((li, index) => {
+				const marker = node.tagName === 'OL' ? (Number(node.getAttribute('start') || 1) + index) + '. ' : '- ';
+				return marker + [...li.childNodes].map(convert).join('').trim().replace(/\n/g, '\n' + ' '.repeat(marker.length));
+			}).join('\n'));
+			case 'SPAN': return text();
+			default: return node.outerHTML;
+		}
+	};
+	return [...node.childNodes].map(convert).join('').trim();
+}
+function addResponseCopy(block, getText) {
+	const heading = document.createElement('div'), feedback = document.createElement('span'), button = document.createElement('button');
+	heading.className = 'message-heading'; feedback.className = 'message-copy-status'; feedback.setAttribute('role', 'status');
+	button.type = 'button'; button.className = 'message-copy'; button.title = 'Copy response Markdown'; button.setAttribute('aria-label', button.title);
+	button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="3" width="8" height="4" rx="1"/><path d="M8 5H6a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/></svg>';
+	let feedbackTimer;
+	button.onclick = async () => {
+		clearTimeout(feedbackTimer);
+		try { await navigator.clipboard.writeText(getText()); feedback.textContent = 'Copied'; }
+		catch { feedback.textContent = 'Could not copy. Try again.'; }
+		feedbackTimer = setTimeout(() => { feedback.textContent = ''; }, 2000);
+	};
+	heading.append(block.querySelector('.message-role'), feedback, button); block.prepend(heading);
+}
 function renderSavedDiscussion(html) {
 	const template = document.createElement('template');
 	template.innerHTML = DOMPurify.sanitize(html);
@@ -164,6 +215,7 @@ function renderSavedDiscussion(html) {
 	}
 	const blocks = [...$('messages').querySelectorAll('.message')];
 	const saved = (job.messages || []).slice(0, job.discussionMessageCount || 0);
+	const originals = new Map();
 	if (blocks.length === saved.length) {
 		blocks.forEach((block, index) => {
 			if (saved[index].role !== 'assistant' || !block.classList.contains('assistant')) return;
@@ -172,8 +224,15 @@ function renderSavedDiscussion(html) {
 			// Re-render from the original only when the saved answer is unchanged.
 			const original = document.createElement('div'); original.innerHTML = markdownHTML(saved[index].text, marked);
 			const normalized = node => [...node.childNodes].filter(n => n.nodeType !== Node.TEXT_NODE || n.textContent.trim()).map(n => n.outerHTML || n.textContent).join('');
-			if (normalized(content) === normalized(original)) markdown(content, saved[index].text);
+			if (normalized(content) === normalized(original)) {
+				originals.set(block, saved[index].text);
+				markdown(content, saved[index].text);
+			}
 		});
+	}
+	for (const block of blocks.filter(block => block.classList.contains('assistant'))) {
+		const source = originals.get(block) ?? savedResponseMarkdown(block.lastElementChild);
+		addResponseCopy(block, () => source);
 	}
 	for (const link of $('messages').querySelectorAll('a')) { link.target = '_blank'; link.rel = 'noopener noreferrer'; }
 }
@@ -339,6 +398,7 @@ function render(next) {
 			if (message.role === 'assistant') { content.className = 'markdown'; markdown(content, message.text); }
 			else content.textContent = message.text;
 			block.append(name, content); $('messages').append(block);
+			if (message.role === 'assistant') addResponseCopy(block, () => message.text);
 		}
 	}
 	markdown($('partialContent'), job.partial);
@@ -442,6 +502,7 @@ $('copySession').onclick = async () => {
 	try { const result = await call('command', {id: job.id}); $('sessionCommand').textContent = result.command; await navigator.clipboard.writeText(result.command); $('copyStatus').textContent = 'Copied'; }
 	catch (e) { $('copyStatus').textContent = e.message; }
 };
+addResponseCopy($('partial'), () => job?.partial || '');
 let lastSize;
 function resizePanel() {
 	const height = Math.ceil(document.body.getBoundingClientRect().height);
