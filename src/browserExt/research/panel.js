@@ -428,7 +428,12 @@ async function act(action, data) {
 	try {
 		$('status').textContent = action === 'start' ? 'Reading metadata and adding entry…' : 'Working…';
 		const result = await call(action, data);
-		if (result.continued) { render(result.job); await refresh(); return; }
+		if (result.continued) {
+			$('paperChoice').hidden = true;
+			render(result.job);
+			await refresh();
+			return;
+		}
 		if (result.cancelled) { $('ordinary').hidden = false; return; }
 		if (action === 'ordinary') { await call('close'); return; }
 		if (result.paperChoices) {
