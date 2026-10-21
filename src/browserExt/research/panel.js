@@ -4,6 +4,7 @@ let job, busy = false, timer, requestID = crypto.randomUUID(), approvalID, messa
 let panelMode = 'floating', minimizedScrollY = 0;
 let ingestionDefaults;
 let duplicateDecision;
+let refreshVersion = 0;
 browser.runtime.onMessage.addListener(message => {
 	if (message?.research === 'preparing' && busy && activeAction === 'start') $('status').textContent = message.stage;
 	if (message?.research === 'duplicates' && busy) return confirmDuplicates(message.matches);
@@ -404,26 +405,30 @@ function render(next) {
 	markdown($('partialContent'), job.partial);
 	$('partial').hidden = !job.partial;
 	$('send').disabled = busy || job.status !== 'ready';
+	$('clearDiscussion').disabled = busy || job.status !== 'ready';
 }
 async function refresh(reconnect = false) {
+	const version = refreshVersion;
 	try {
 		const result = await call('status', {id: job?.id, reconnect});
+		if (version !== refreshVersion) return;
 		document.body.dataset.connection = 'open'; $('zoteroClosed').hidden = true;
 		render(result.job);
 	}
-	catch (e) { render(job); error(e); }
+	catch (e) { if (version !== refreshVersion) return; render(job); error(e); }
 	clearTimeout(timer);
 	if (!job && !ingestionDefaults && document.body.dataset.connection !== 'closed') loadIngestionSettings();
 	if (document.body.dataset.connection !== 'closed' && job && ['ingesting', 'chatting', 'summarizing'].includes(job.status)) timer = setTimeout(refresh, 1000);
 }
 async function act(action, data) {
 	if (busy) return;
+	if (action === 'clearDiscussion') { refreshVersion++; clearTimeout(timer); }
 	const submittedQuestion = action === 'chat' ? $('question').value : null;
 	if (action === 'chat') $('question').value = '';
 	if (action === 'start') $('ordinary').hidden = true;
 	busy = true; activeAction = action; actionStartedAt = Date.now(); $('error').hidden = true;
 	updateProgress();
-	for (const id of ['entry', 'pdf', 'categorize', 'ordinary', 'approve', 'skip', 'retry', 'send', 'produceSummary']) $(id).disabled = true;
+	for (const id of ['entry', 'pdf', 'categorize', 'ordinary', 'approve', 'skip', 'retry', 'send', 'produceSummary', 'clearDiscussion']) $(id).disabled = true;
 	updateIngestionControls();
 	try {
 		$('status').textContent = action === 'start' ? 'Reading metadata and adding entry…' : 'Working…';
@@ -461,6 +466,7 @@ async function act(action, data) {
 		updateIngestionControls();
 		$('send').disabled = !!job && job.status !== 'ready';
 		$('produceSummary').disabled = job?.status !== 'ready';
+		$('clearDiscussion').disabled = job?.status !== 'ready';
 	}
 }
 $('entry').onclick = () => startIngestion('entry');
@@ -478,6 +484,7 @@ $('duplicateYes').onclick = () => duplicateDecision?.(true);
 $('approve').onclick = () => act('approve', {id: job.id, selected: [...$('proposals').querySelectorAll('input:checked')].map(input => Number(input.value))});
 $('skip').onclick = () => act('approve', {id: job.id, selected: []});
 $('produceSummary').onclick = () => act('summarize', {id: job.id});
+$('clearDiscussion').onclick = () => act('clearDiscussion', {id: job.id});
 $('retry').onclick = () => act('retry', {id: job.id});
 $('chatForm').onsubmit = event => { event.preventDefault(); const question = $('question').value.trim(); if (question) act('chat', {id: job.id, question}); };
 $('question').onkeydown = event => {

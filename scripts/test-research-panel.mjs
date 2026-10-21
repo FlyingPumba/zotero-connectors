@@ -44,7 +44,17 @@ try {
       }
       if (method === 'status') {
         if (statusError) throw new Error(statusError);
+        if (Zotero.Research.holdStatus) {
+          Zotero.Research.holdStatus = false;
+          const snapshot = structuredClone(currentJob);
+          await new Promise(resolve => { Zotero.Research.releaseStatus = resolve; });
+          return {job: snapshot};
+        }
         return {job: currentJob};
+      }
+      if (method === 'clearDiscussion') {
+        if (Zotero.Research.rejectClear) throw new Error('Could not save the cleared discussion');
+        Object.assign(currentJob, {messages: [], discussionHTML: '', discussionMessageCount: 0, threadId: null, partial: '', error: null});
       }
       if (method === 'command') return {command: 'codex resume ' + currentJob.threadId};
       if (method === 'start') {
@@ -224,6 +234,7 @@ try {
   await panel.focus('#send');
   await page.keyboard.press('Enter');
   await panel.waitForFunction(() => !busy && job.status === 'chatting');
+  assert.equal(await panel.$eval('#clearDiscussion', n => n.disabled), true, 'Clear waits for the active answer to finish');
   assert.equal(await panel.$eval('#approval', n => n.hidden), false, 'Suggestions stay visible during a reply');
   assert.equal(await panel.$eval('#proposals input', n => n.checked), true, 'Chat does not reset pending selections');
   await panel.click('#skip');
@@ -657,6 +668,23 @@ $$\begin{pmatrix}a & b \\ c & d\end{pmatrix}$$
   assert.deepEqual(await panel.evaluate(() => job.messages), categorized.messages);
   assert.deepEqual(await panel.evaluate(() => job.existingCollections), categorized.existingCollections);
   console.log('PASS: Add entry opens categorized discussion without a summary, then supports chat and Produce summary');
+  await worker.evaluate(() => { Zotero.Research.rejectClear = true; });
+  await panel.locator('#clearDiscussion').click();
+  await panel.waitForFunction(() => !busy && !$('error').hidden);
+  assert.deepEqual(await panel.evaluate(() => job.messages), categorized.messages, 'Failed clear keeps the conversation visible');
+  assert.equal(await panel.$eval('#clearDiscussion', n => n.disabled), false);
+  await worker.evaluate(() => { Zotero.Research.rejectClear = false; Zotero.Research.holdStatus = true; });
+  await panel.evaluate(() => { void refresh(); });
+  await worker.waitForFunction(() => !!Zotero.Research.releaseStatus);
+  await panel.locator('#clearDiscussion').click();
+  await panel.waitForFunction(() => !busy && !job.messages.length && job.threadId === null);
+  await worker.evaluate(() => Zotero.Research.releaseStatus());
+  await panel.evaluate(() => refresh());
+  assert.equal(await panel.$eval('#messages', n => n.textContent), '', 'A delayed pre-clear status response must not restore old messages');
+  assert.equal(await panel.$eval('#session', n => n.hidden), true);
+  assert.equal(await panel.$eval('#summary', n => n.textContent), 'A summary requested later.');
+  assert.deepEqual(await panel.evaluate(() => job.existingCollections), categorized.existingCollections);
+  console.log('PASS: clear handles failures, disables during answers, and ignores stale pre-clear status responses');
   console.log(JSON.stringify({ready, progress, longContentCapsAt760: true, shrinksAfterContentChange: true,
     independentCategoryReviewAndOrdinarySavePreserved: true, chatProgress, streamingReplacesProgress: true, centered: rect, categoryEditingAndMarkdown: true, narrow}, null, 2));
 } finally {
