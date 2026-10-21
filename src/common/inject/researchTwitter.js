@@ -47,7 +47,7 @@ Zotero.ResearchTwitter = {
 			window.scrollTo({top: 0, behavior: 'instant'});
 			await waitForRender();
 			let found = false, finished = false;
-			while (!finished) {
+			reading: while (!finished) {
 				checkTimeout();
 				if (location.pathname !== new URL(origin.url).pathname) throw new Error('The Twitter page changed while reading the thread. Try again on the post.');
 				let last;
@@ -63,9 +63,13 @@ Zotero.ResearchTwitter = {
 					if (post.truncated) {
 						const more = article.querySelector('[data-testid="tweet-text-show-more-link"]');
 						more.click(); await waitForRender();
-						const expanded = this.readPost(article);
+						// X can replace the expanded post and later posts while rendering.
+						// Read their live nodes, including links added during the redraw.
+						const expanded = [...document.querySelectorAll('article[data-testid="tweet"]')]
+							.map(node => this.readPost(node)).find(node => node?.id === post.id);
 						if (!expanded || expanded.truncated) throw new Error('Expand the author’s post with “Show more”, then try again.');
 						posts.set(post.id, expanded);
+						continue reading;
 					} else posts.set(post.id, post);
 					last = article;
 				}

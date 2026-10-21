@@ -149,6 +149,45 @@ try {
       && innerHeight === Math.ceil(document.body.getBoundingClientRect().height));
     return {panel, tab};
   }
+  // X can redraw the timeline while a collapsed post expands. Later posts
+  // can acquire their links in the replacement DOM, not in the old NodeList.
+  const initialHTML = html;
+  for (const replaceExpanded of [false, true]) {
+    const finalLinks = `Paper: <a href="https://t.co/paper">buff.ly/Sv0HpMe</a>
+      Overview: <a href="${paperURL}?overview">far.ai/fibs</a>
+      FIBS + probes: <a href="${paperURL}?probes">buff.ly/xiOzxeE</a> 8/8`;
+    html = '<!doctype html><title>FIBS thread</title><div id="timeline">'
+      + post('101', 'New paper from our team. 1/8')
+      + post('102', 'The setup:', '<button data-testid="tweet-text-show-more-link">Show more</button>')
+      + Array.from({length: 6}, (_, i) => post(String(103 + i), `Results ${i + 3}/8`)).join('')
+      + post('201', 'Unrelated reply', '', 'someone_else') + '<h2>Discover more</h2>'
+      + post('109', 'Unrelated recommendation', card) + '</div>'
+      + `<script>document.querySelector('button').onclick = function () {
+        const timeline = document.getElementById('timeline');
+        const next = timeline.cloneNode(true);
+        next.querySelectorAll('[data-testid="tweetText"]')[1].textContent = 'The full setup. 2/8';
+        next.querySelector('button').remove();
+        next.querySelectorAll('[data-testid="tweetText"]')[7].innerHTML = ${JSON.stringify(finalLinks)};
+        ${replaceExpanded ? '' : "this.closest('article').querySelector('[data-testid=\"tweetText\"]').textContent = 'The full setup. 2/8'; this.remove();"}
+        timeline.replaceWith(next);
+      };</script>`;
+    const {panel} = await openPanel();
+    const beforeStart = await worker.evaluate(() => Zotero.Research.testStarts.length);
+    await panel.locator('#entry').click();
+    await panel.waitForFunction(() => !document.getElementById('paperChoice').hidden || !document.getElementById('error').hidden);
+    assert.equal(await panel.$eval('#error', n => n.hidden ? '' : n.textContent), '', 'Read the replacement timeline after expanding a post');
+    assert.equal(await panel.$$eval('#paperChoices button', nodes => nodes.length), 3);
+    assert.equal(await worker.evaluate(() => Zotero.Research.testStarts.length), beforeStart, 'Choose the paper before creating an entry');
+    await panel.locator('#paperChoices button').click();
+    await panel.waitForSelector('#paper:not([hidden])');
+    const request = await worker.evaluate(() => Zotero.Research.testStarts.at(-1));
+    assert.deepEqual(request.twitterThread.posts.map(p => p.id), Array.from({length: 8}, (_, i) => String(101 + i)));
+    assert.equal(request.twitterThread.posts[1].text, 'The full setup. 2/8');
+    assert.ok(request.twitterThread.posts[7].links.some(link => link.url === 'https://t.co/paper'));
+  }
+  html = initialHTML;
+  await worker.evaluate(() => { Zotero.Research.testLinkRequests = []; });
+  console.log('PASS: expanded posts and later links are read from the live timeline after a redraw');
   for (const mode of ['entry', 'pdf', 'categorize']) {
     const {panel} = await openPanel();
     await panel.waitForFunction(() => !document.getElementById('ingestionEffort').disabled);
