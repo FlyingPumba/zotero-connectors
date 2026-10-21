@@ -3,9 +3,9 @@
 header { display: flex; justify-content: space-between; align-items: center; padding: 14px 24px; border-bottom: 1px solid #e3e7e3; }
 #panelHeading { min-width: 0; }
 .panel-controls { display: flex; flex-shrink: 0; gap: 2px; }
-.panel-controls .icon, #clearDiscussion { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 6px; }
-.panel-controls .icon:hover, #clearDiscussion:hover { background: #edf3ef; }
-.panel-controls svg, #restore svg, #clearDiscussion svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.panel-controls .icon, .discussion-controls .icon { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 32px; height: 32px; padding: 6px; }
+.panel-controls .icon:hover, .discussion-controls .icon:hover { background: #edf3ef; }
+.panel-controls svg, #restore svg, .discussion-controls svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 body:not([data-mode="docked"]) .detach-icon, body[data-mode="docked"] .dock-icon { display: none; }
 .eyebrow { font-size: 10px; letter-spacing: .15em; color: #4f7268; font-weight: 700; } h1 { font-size: 21px; line-height: 1.3; letter-spacing: -.025em; margin: 7px 0 0; font-weight: 650; overflow-wrap: anywhere; }
 main { padding: 0 24px; } body:not(.results) main { display: flow-root; } section { margin: 16px 0; } #actions { margin: 24px 0; } h2 { font-size: 17px; line-height: 1.35; margin-bottom: 12px; }
@@ -50,6 +50,8 @@ footer { padding: 0 24px 20px; } #ordinary { display: block; width: 100%; }
 .results #paper, .results #chat, .results #approval { border-top: 1px solid #e3e7e3; padding-top: 20px; }
 .results h2 { font-size: 14px; margin: 0 0 12px; font-weight: 650; }
 .discussion-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.discussion-controls { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.discussion-controls .message-copy-status { margin-right: 4px; }
 .results .discussion-heading h2 { margin: 0; }
 .results #summary { margin: 0; }
 .results #ordinary { width: auto; padding: 6px 0; border: 0; font-size: 12px; color: #67716e; }

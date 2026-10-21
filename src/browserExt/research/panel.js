@@ -184,10 +184,7 @@ function savedResponseMarkdown(node) {
 	};
 	return [...node.childNodes].map(convert).join('').trim();
 }
-function addResponseCopy(block, getText) {
-	const heading = document.createElement('div'), feedback = document.createElement('span'), button = document.createElement('button');
-	heading.className = 'message-heading'; feedback.className = 'message-copy-status'; feedback.setAttribute('role', 'status');
-	button.type = 'button'; button.className = 'message-copy'; button.title = 'Copy response Markdown'; button.setAttribute('aria-label', button.title);
+function configureCopyButton(button, feedback, getText) {
 	button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="3" width="8" height="4" rx="1"/><path d="M8 5H6a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/></svg>';
 	let feedbackTimer;
 	button.onclick = async () => {
@@ -196,7 +193,23 @@ function addResponseCopy(block, getText) {
 		catch { feedback.textContent = 'Could not copy. Try again.'; }
 		feedbackTimer = setTimeout(() => { feedback.textContent = ''; }, 2000);
 	};
+}
+const messageCopySources = new WeakMap();
+function addMessageCopy(block, getText) {
+	messageCopySources.set(block, getText);
+	const heading = document.createElement('div'), feedback = document.createElement('span'), button = document.createElement('button');
+	heading.className = 'message-heading'; feedback.className = 'message-copy-status'; feedback.setAttribute('role', 'status');
+	button.type = 'button'; button.className = 'message-copy'; button.title = block.classList.contains('user') ? 'Copy message Markdown' : 'Copy response Markdown'; button.setAttribute('aria-label', button.title);
+	configureCopyButton(button, feedback, getText);
 	heading.append(block.querySelector('.message-role'), feedback, button); block.prepend(heading);
+}
+function discussionMarkdown() {
+	const parts = [...$('messages').children].map(block => {
+		const source = messageCopySources.get(block);
+		return source ? `## ${block.querySelector('.message-role').textContent}\n\n${source()}` : savedResponseMarkdown(block);
+	});
+	if (job?.partial) parts.push(`## Assistant\n\n${job.partial}`);
+	return parts.filter(Boolean).join('\n\n');
 }
 function renderSavedDiscussion(html) {
 	const template = document.createElement('template');
@@ -219,21 +232,31 @@ function renderSavedDiscussion(html) {
 	const originals = new Map();
 	if (blocks.length === saved.length) {
 		blocks.forEach((block, index) => {
-			if (saved[index].role !== 'assistant' || !block.classList.contains('assistant')) return;
+			const message = saved[index];
+			if (!block.classList.contains(message.role)) return;
 			const content = block.lastElementChild;
 			// Older notes have already lost their math delimiters to Markdown.
 			// Re-render from the original only when the saved answer is unchanged.
-			const original = document.createElement('div'); original.innerHTML = markdownHTML(saved[index].text, marked);
+			const original = document.createElement('div');
+			if (message.role === 'assistant') original.innerHTML = markdownHTML(message.text, marked);
+			else {
+				const paragraph = document.createElement('p');
+				message.text.split('\n').forEach((line, index) => {
+					if (index) paragraph.append(document.createElement('br'));
+					paragraph.append(document.createTextNode(line));
+				});
+				original.append(paragraph);
+			}
 			const normalized = node => [...node.childNodes].filter(n => n.nodeType !== Node.TEXT_NODE || n.textContent.trim()).map(n => n.outerHTML || n.textContent).join('');
 			if (normalized(content) === normalized(original)) {
-				originals.set(block, saved[index].text);
-				markdown(content, saved[index].text);
+				originals.set(block, message.text);
+				if (message.role === 'assistant') markdown(content, message.text);
 			}
 		});
 	}
-	for (const block of blocks.filter(block => block.classList.contains('assistant'))) {
+	for (const block of blocks) {
 		const source = originals.get(block) ?? savedResponseMarkdown(block.lastElementChild);
-		addResponseCopy(block, () => source);
+		addMessageCopy(block, () => source);
 	}
 	for (const link of $('messages').querySelectorAll('a')) { link.target = '_blank'; link.rel = 'noopener noreferrer'; }
 }
@@ -399,13 +422,14 @@ function render(next) {
 			if (message.role === 'assistant') { content.className = 'markdown'; markdown(content, message.text); }
 			else content.textContent = message.text;
 			block.append(name, content); $('messages').append(block);
-			if (message.role === 'assistant') addResponseCopy(block, () => message.text);
+			addMessageCopy(block, () => message.text);
 		}
 	}
 	markdown($('partialContent'), job.partial);
 	$('partial').hidden = !job.partial;
 	$('send').disabled = busy || job.status !== 'ready';
 	$('clearDiscussion').disabled = busy || job.status !== 'ready';
+	$('copyDiscussion').disabled = !$('messages').textContent && !job.partial;
 }
 async function refresh(reconnect = false) {
 	const version = refreshVersion;
@@ -514,7 +538,8 @@ $('copySession').onclick = async () => {
 	try { const result = await call('command', {id: job.id}); $('sessionCommand').textContent = result.command; await navigator.clipboard.writeText(result.command); $('copyStatus').textContent = 'Copied'; }
 	catch (e) { $('copyStatus').textContent = e.message; }
 };
-addResponseCopy($('partial'), () => job?.partial || '');
+addMessageCopy($('partial'), () => job?.partial || '');
+configureCopyButton($('copyDiscussion'), $('discussionCopyStatus'), discussionMarkdown);
 let lastSize;
 function resizePanel() {
 	const height = Math.ceil(document.body.getBoundingClientRect().height);
