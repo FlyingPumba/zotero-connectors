@@ -56,6 +56,12 @@ try {
         if (Zotero.Research.rejectClear) throw new Error('Could not save the cleared discussion');
         Object.assign(currentJob, {messages: [], discussionHTML: '', discussionMessageCount: 0, threadId: null, partial: '', error: null});
       }
+      if (method === 'truncateDiscussion') {
+        Zotero.Research.lastTruncation = data;
+        if (Zotero.Research.rejectTruncation) throw new Error('Codex history could not be updated');
+        currentJob.messages = currentJob.messages.slice(0, data.index);
+        currentJob.discussionRevision = 'after-cut';
+      }
       if (method === 'command') return {command: 'codex resume ' + currentJob.threadId};
       if (method === 'start') {
         Zotero.Research.lastStart = data;
@@ -235,6 +241,7 @@ try {
   await page.keyboard.press('Enter');
   await panel.waitForFunction(() => !busy && job.status === 'chatting');
   assert.equal(await panel.$eval('#clearDiscussion', n => n.disabled), true, 'Clear waits for the active answer to finish');
+  assert.ok(await panel.$$eval('.message-clear', buttons => buttons.length > 0 && buttons.every(b => b.disabled)), 'Message cutoffs wait for the active answer');
   assert.equal(await panel.$eval('#approval', n => n.hidden), false, 'Suggestions stay visible during a reply');
   assert.equal(await panel.$eval('#proposals input', n => n.checked), true, 'Chat does not reset pending selections');
   await panel.click('#skip');
@@ -696,6 +703,27 @@ $$\begin{pmatrix}a & b \\ c & d\end{pmatrix}$$
   assert.deepEqual(await panel.evaluate(() => job.messages), categorized.messages);
   assert.deepEqual(await panel.evaluate(() => job.existingCollections), categorized.existingCollections);
   console.log('PASS: Add entry opens categorized discussion without a summary, then supports chat and Produce summary');
+  const beforeCut = await panel.evaluate(() => ({...job, discussionRevision: 'before-cut', messages: [...job.messages,
+    {role: 'user', text: 'Remove this question'}, {role: 'assistant', text: 'Remove this answer'},
+    {role: 'user', text: 'Remove the later question'}, {role: 'assistant', text: 'Remove the later answer'}]}));
+  await worker.evaluate(job => Zotero.Research.setTestJob(job), beforeCut);
+  await panel.evaluate(() => refresh());
+  assert.equal(await panel.$$eval('.user .message-clear', nodes => nodes.length), 3);
+  assert.equal(await panel.$$eval('.assistant .message-clear', nodes => nodes.length), 0);
+  assert.ok(await panel.$$eval('.user .message-clear', nodes => nodes.every(n => n.previousElementSibling.classList.contains('message-copy'))));
+  await panel.type('#question', 'Preserve this next draft');
+  await worker.evaluate(() => { Zotero.Research.rejectTruncation = true; });
+  await panel.evaluate(() => document.querySelectorAll('.message-clear')[1].click());
+  await panel.waitForFunction(() => !busy && !$('error').hidden);
+  assert.equal(await panel.$$eval('.user .message-clear', nodes => nodes.length), 3, 'Failed disk deletion leaves all bubbles visible');
+  await worker.evaluate(() => { Zotero.Research.rejectTruncation = false; });
+  await panel.evaluate(() => document.querySelectorAll('.message-clear')[1].click());
+  await panel.waitForFunction(() => !busy && job.messages.length === 2);
+  assert.deepEqual(await worker.evaluate(() => Zotero.Research.lastTruncation), {id: beforeCut.id, index: 2, revision: 'before-cut'});
+  assert.equal(await panel.$eval('#question', n => n.value), 'Preserve this next draft');
+  assert.equal(await panel.$eval('#summary', n => n.textContent), beforeCut.summary);
+  assert.doesNotMatch(await panel.$eval('#messages', n => n.textContent), /Remove this|Remove the later/);
+  console.log('PASS: per-User broom beside copy removes the suffix, preserves the draft, and reports disk failures');
   await worker.evaluate(() => { Zotero.Research.rejectClear = true; });
   await panel.locator('#clearDiscussion').click();
   await panel.waitForFunction(() => !busy && !$('error').hidden);

@@ -196,6 +196,7 @@ browser.runtime.onMessage.addListener((message, sender) => {
 		}
 		if (message.action === 'command') return Zotero.Research.call('command', {id: data.id});
 		if (message.action === 'clearDiscussion') return Zotero.Research.call('clearDiscussion', {id: data.id});
+		if (message.action === 'truncateDiscussion') return Zotero.Research.call('truncateDiscussion', {id: data.id, index: data.index, revision: data.revision});
 		if (message.action === 'approve') return Zotero.Research.call('approve', {id: data.id, selected: data.selected});
 		if (message.action === 'category') return Zotero.Research.call('category', data);
 		if (message.action === 'createCategory') return Zotero.Research.call('createCategory', data);

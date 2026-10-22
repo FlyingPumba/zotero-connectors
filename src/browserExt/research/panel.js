@@ -203,6 +203,18 @@ function addMessageCopy(block, getText) {
 	configureCopyButton(button, feedback, getText);
 	heading.append(block.querySelector('.message-role'), feedback, button); block.prepend(heading);
 }
+function addMessageClear(block, index) {
+	const button = document.createElement('button');
+	button.type = 'button'; button.className = 'message-clear';
+	button.title = 'Clear research discussion from here'; button.setAttribute('aria-label', button.title);
+	button.append($('clearDiscussion').firstElementChild.cloneNode(true));
+	const revision = job.discussionRevision;
+	button.onclick = () => act('truncateDiscussion', {id: job.id, index, revision});
+	block.querySelector('.message-heading').append(button);
+}
+function updateMessageClearButtons() {
+	for (const button of $('messages').querySelectorAll('.message-clear')) button.disabled = busy || job?.status !== 'ready';
+}
 function discussionMarkdown() {
 	const parts = [...$('messages').children].map(block => {
 		const source = messageCopySources.get(block);
@@ -411,7 +423,7 @@ function render(next) {
 			reason.textContent = proposal.reason; label.append(reason); $('proposals').append(label);
 		});
 	}
-	const snapshot = JSON.stringify([job.messages, job.discussionHTML, job.discussionMessageCount]);
+	const snapshot = JSON.stringify([job.messages, job.discussionHTML, job.discussionMessageCount, job.discussionRevision]);
 	if (snapshot !== messageSnapshot) {
 		messageSnapshot = snapshot; $('messages').replaceChildren();
 		if (job.discussionHTML != null) renderSavedDiscussion(job.discussionHTML);
@@ -424,7 +436,11 @@ function render(next) {
 			block.append(name, content); $('messages').append(block);
 			addMessageCopy(block, () => message.text);
 		}
+		[...$('messages').querySelectorAll('.message')].forEach((block, index) => {
+			if (block.classList.contains('user')) addMessageClear(block, index);
+		});
 	}
+	updateMessageClearButtons();
 	markdown($('partialContent'), job.partial);
 	$('partial').hidden = !job.partial;
 	$('send').disabled = busy || job.status !== 'ready';
@@ -446,11 +462,12 @@ async function refresh(reconnect = false) {
 }
 async function act(action, data) {
 	if (busy) return;
-	if (action === 'clearDiscussion') { refreshVersion++; clearTimeout(timer); }
+	if (['clearDiscussion', 'truncateDiscussion'].includes(action)) { refreshVersion++; clearTimeout(timer); }
 	const submittedQuestion = action === 'chat' ? $('question').value : null;
 	if (action === 'chat') $('question').value = '';
 	if (action === 'start') $('ordinary').hidden = true;
 	busy = true; activeAction = action; actionStartedAt = Date.now(); $('error').hidden = true;
+	updateMessageClearButtons();
 	updateProgress();
 	for (const id of ['entry', 'pdf', 'categorize', 'ordinary', 'approve', 'skip', 'retry', 'send', 'produceSummary', 'clearDiscussion']) $(id).disabled = true;
 	updateIngestionControls();
@@ -491,6 +508,7 @@ async function act(action, data) {
 		$('send').disabled = !!job && job.status !== 'ready';
 		$('produceSummary').disabled = job?.status !== 'ready';
 		$('clearDiscussion').disabled = job?.status !== 'ready';
+		updateMessageClearButtons();
 	}
 }
 $('entry').onclick = () => startIngestion('entry');
